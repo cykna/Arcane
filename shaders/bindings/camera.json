@@ -1,0 +1,16 @@
+{
+  "types": [],
+  "shared": {
+    "types": []
+  },
+  "pipelines": {
+    "layout": {
+      "bind_group_layouts": [],
+      "push_constant_ranges": []
+    },
+    "vertex": null,
+    "fragment": null,
+    "compute": null
+  },
+  "bindgroups": []
+}
