@@ -1,6 +1,7 @@
 const std = @import("std");
 const schema = @import("schema.zig");
 const model_builder = @import("model.zig");
+const linked_model = @import("linked_model.zig");
 const layout = @import("layout.zig");
 const types = @import("emit_types.zig");
 const shared_types = @import("emit_shared.zig");
@@ -12,6 +13,37 @@ const Writer = std.Io.Writer;
 const writeZigString = @import("emit_common.zig").writeZigString;
 const buildModel = model_builder.buildModel;
 const typeLayout = layout.typeLayout;
+
+pub fn generateLinkedShared(model: *const schema.Model, allocator: Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const work_allocator = arena.allocator();
+    var output: Writer.Allocating = .init(work_allocator);
+    const w = &output.writer;
+    try w.writeAll(@embedFile("shared_base.zig"));
+    try w.writeAll("\n// WGSL aliases derived from anygpu type metadata.\n");
+    var seen: [][]const u8 = &.{};
+    try shared_types.emit(w, model, work_allocator, &seen);
+    return try allocator.dupe(u8, try output.toOwnedSlice());
+}
+
+pub fn generateLinkedTypes(model: *const schema.Model, allocator: Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const work_allocator = arena.allocator();
+    var output: Writer.Allocating = .init(work_allocator);
+    const w = &output.writer;
+    try w.writeAll(
+        \\// Generated canonical WESL types. Do not edit by hand.
+        \\const shared = @import("shared.zig");
+        \\
+    );
+    try types.emit(w, model);
+    try w.writeAll("\ncomptime {\n");
+    try emitLinkedLayoutChecks(w, model);
+    try w.writeAll("    _ = type_layouts;\n}\n");
+    return try allocator.dupe(u8, try output.toOwnedSlice());
+}
 
 pub fn generateShared(schemas: []const *const Value, allocator: Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -34,6 +66,25 @@ pub fn generate(schema_value: *const Value, allocator: Allocator) ![]u8 {
     defer arena.deinit();
     const work_allocator = arena.allocator();
     const model = try buildModel(schema_value, work_allocator);
+    return generateWithModel(schema_value, &model, work_allocator, allocator);
+}
+
+pub fn generateLinkedModule(module: *const Value, linked: *const schema.Model, allocator: Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const work_allocator = arena.allocator();
+    var model = linked.*;
+    model.emit_mode = .linked_module;
+    model.current_module = try schema.string(try schema.field(module, "id"));
+    return generateWithModel(module, &model, work_allocator, allocator);
+}
+
+fn generateWithModel(
+    schema_value: *const Value,
+    model: *const schema.Model,
+    work_allocator: Allocator,
+    result_allocator: Allocator,
+) ![]u8 {
     var output: Writer.Allocating = .init(work_allocator);
     const w = &output.writer;
     try w.writeAll(
@@ -41,24 +92,41 @@ pub fn generate(schema_value: *const Value, allocator: Allocator) ![]u8 {
         \\const shared = @import("shared.zig");
         \\
     );
-    try types.emit(w, &model);
-    try bindings.emit(w, schema_value);
-    try pipeline.emit(w, schema_value, work_allocator);
+    if (model.emit_mode == .linked_module) {
+        try w.writeAll("const canonical = @import(\"types.zig\");\n");
+    }
+    types.emit(w, model) catch |err| {
+        std.debug.print("anygpu-ziggen: type emission failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    bindings.emit(w, schema_value, model, work_allocator) catch |err| {
+        std.debug.print("anygpu-ziggen: binding emission failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    pipeline.emit(w, schema_value, work_allocator, model) catch |err| {
+        std.debug.print("anygpu-ziggen: pipeline emission failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
 
     try w.writeAll("\ncomptime {\n    _ = bindings;\n    _ = Pipeline;\n");
-    for (model.types[model.shared_count..], model.shared_count..) |ty, index| {
+    if (model.emit_mode != .legacy) {
+        emitLinkedLayoutChecks(w, model) catch |err| {
+            std.debug.print("anygpu-ziggen: layout assertion emission failed: {s}\n", .{@errorName(err)});
+            return err;
+        };
+    } else for (model.types[model.shared_count..], model.shared_count..) |ty, index| {
         const descriptor = try schema.tagged(ty.descriptor);
         if (std.mem.eql(u8, descriptor.name, "Scalar") or
             std.mem.eql(u8, descriptor.name, "Atomic") or
             std.mem.eql(u8, descriptor.name, "Vector")) continue;
-        const computed_layout = typeLayout(&model, index, 0) catch |err| {
+        const computed_layout = typeLayout(model, index, 0) catch |err| {
             if (err == error.NoMemoryLayout) continue;
             return err;
         };
         if (std.mem.eql(u8, descriptor.name, "Array") and
             (try schema.field(descriptor.payload, "size")).* == .null) continue;
         try w.writeAll("    if (@sizeOf(");
-        try types.writeTypeRef(w, &model, index);
+        try types.writeTypeRef(w, model, index);
         try w.print(") != {d}) @compileError(", .{computed_layout.size});
         try writeZigString(w, "anygpu layout mismatch: generated type size does not match the schema");
         try w.writeAll(");\n");
@@ -67,14 +135,108 @@ pub fn generate(schema_value: *const Value, allocator: Allocator) ![]u8 {
             std.mem.eql(u8, descriptor.name, "Array"))
         {
             try w.writeAll("    if (@alignOf(");
-            try types.writeTypeRef(w, &model, index);
+            try types.writeTypeRef(w, model, index);
             try w.print(") != {d}) @compileError(", .{computed_layout.alignment});
             try writeZigString(w, "anygpu layout mismatch: generated type alignment does not match the schema");
             try w.writeAll(");\n");
         }
     }
+    const has_minimum = bindings.hasMinBindingSize(schema_value, work_allocator) catch |err| {
+        std.debug.print("anygpu-ziggen: binding-size inspection failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    if (has_minimum) {
+        try w.writeAll("    for (bindings) |binding| {\n        const minimum = binding.min_binding_size orelse continue;\n        if (");
+        var wrote_candidate = false;
+        for (model.types, 0..) |ty, index| {
+            if (model.emit_mode == .linked_module and
+                !ty.is_canonical and
+                !std.mem.eql(u8, ty.owner_module orelse "", model.current_module orelse "")) continue;
+            const descriptor = try schema.tagged(ty.descriptor);
+            if (layout.isOpaque(descriptor.name)) continue;
+            const is_runtime_array = std.mem.eql(u8, descriptor.name, "Array") and
+                (try schema.field(descriptor.payload, "size")).* == .null;
+            const candidate = if (is_runtime_array)
+                try schema.number(try schema.field(descriptor.payload, "stride"))
+            else blk: {
+                const computed_layout = typeLayout(model, index, 0) catch |err| {
+                    if (err == error.NoMemoryLayout) continue;
+                    return err;
+                };
+                break :blk computed_layout.size;
+            };
+            if (wrote_candidate) try w.writeAll(" or ");
+            try w.print("(minimum == {d})", .{candidate});
+            wrote_candidate = true;
+        }
+        if (!wrote_candidate) try w.writeAll("false");
+        try w.writeAll(") {} else @compileError(\"anygpu binding min_binding_size does not match any reflected type size or runtime array stride\");\n    }\n");
+    }
     try w.writeAll("}\n");
-    return try allocator.dupe(u8, try output.toOwnedSlice());
+    return try result_allocator.dupe(u8, try output.toOwnedSlice());
+}
+
+fn emitLinkedLayoutChecks(w: *Writer, model: *const schema.Model) !void {
+    for (model.types, 0..) |ty, index| {
+        if (!types.shouldEmit(model, index)) continue;
+        const descriptor = try schema.tagged(ty.descriptor);
+        if (layout.isOpaque(descriptor.name)) continue;
+        const computed = typeLayout(model, index, 0) catch |err| {
+            if (err == error.NoMemoryLayout) continue;
+            return err;
+        };
+        const is_runtime_array = std.mem.eql(u8, descriptor.name, "Array") and
+            (try schema.field(descriptor.payload, "size")).* == .null;
+        if (!is_runtime_array) {
+            try w.writeAll("    if (@sizeOf(");
+            try types.writeTypeRef(w, model, index);
+            try w.print(") != {d}) @compileError(", .{computed.size});
+            try writeZigString(w, "anygpu layout mismatch: generated type size does not match the schema");
+            try w.writeAll(");\n");
+        }
+        if (std.mem.eql(u8, descriptor.name, "Struct") or
+            std.mem.eql(u8, descriptor.name, "Matrix") or
+            std.mem.eql(u8, descriptor.name, "Array"))
+        {
+            try w.writeAll("    if (@alignOf(");
+            try types.writeTypeRef(w, model, index);
+            try w.print(") != {d}) @compileError(", .{computed.alignment});
+            try writeZigString(w, "anygpu layout mismatch: generated type alignment does not match the schema");
+            try w.writeAll(");\n");
+        }
+        if (std.mem.eql(u8, descriptor.name, "Struct")) try emitMemberOffsetChecks(w, model, index);
+    }
+}
+
+fn emitMemberOffsetChecks(w: *Writer, model: *const schema.Model, index: usize) !void {
+    const members = try schema.field(model.types[index].descriptor, "Struct");
+    const member_values = try schema.field(members, "members");
+    if (member_values.* != .array) return error.InvalidSchema;
+    const names = try model.allocator.alloc([]const u8, member_values.array.items.len);
+    const identifiers = @import("identifiers.zig");
+    for (member_values.array.items, 0..) |*member, member_index| {
+        const original = try schema.string(try schema.field(member, "name"));
+        const sanitized = try identifiers.zigIdentifier(model.allocator, if (original.len == 0) "member" else original, member_index);
+        var field_name = sanitized;
+        var suffix = member_index;
+        while (std.mem.eql(u8, field_name, "init") or
+            std.mem.eql(u8, field_name, "_alignment") or
+            std.mem.startsWith(u8, field_name, "_padding_") or
+            identifiers.stringExists(names[0..member_index], field_name))
+        {
+            field_name = try std.fmt.allocPrint(model.allocator, "{s}_field_{d}", .{ sanitized, suffix });
+            suffix += 1;
+        }
+        names[member_index] = field_name;
+        try w.writeAll("    if (@offsetOf(");
+        try types.writeTypeRef(w, model, index);
+        try w.writeAll(", ");
+        try writeZigString(w, field_name);
+        try w.writeAll(") != ");
+        try w.print("{d}) @compileError(", .{try schema.number(try schema.field(member, "offset"))});
+        try writeZigString(w, "anygpu layout mismatch: generated field offset does not match the schema");
+        try w.writeAll(");\n");
+    }
 }
 
 test "generates padded, strongly typed WGSL structs and binding metadata" {
@@ -231,7 +393,7 @@ test "emits zgpu helpers for render pipelines" {
     defer std.testing.allocator.free(generated);
     try std.testing.expect(std.mem.indexOf(u8, generated, "pub fn create(gctx: *zgpu.GraphicsContext, source: [:0]const u8)") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "pub fn createWithOptions(") != null);
-    try std.testing.expect(std.mem.indexOf(u8, generated, "gctx.createRenderPipeline(.{}, descriptor)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "gctx.createRenderPipeline(options.layout, descriptor)") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, ".format = .float32x3, .offset = 0, .shader_location = 0") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, ".array_stride = 32, .step_mode = .vertex") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, ".field_name = \"position\", .element_type = [3]f32, .location = 0 }") != null);
@@ -277,4 +439,21 @@ test "rejects pipelines without a usable vertex buffer layout" {
     const parsed = try std.json.parseFromSlice(Value, std.testing.allocator, source, .{});
     defer parsed.deinit();
     try std.testing.expectError(error.UnsupportedVertexBufferLayout, generate(&parsed.value, std.testing.allocator));
+}
+
+test "matches golden outputs for reflected binding metadata" {
+    inline for (.{
+        "triangle",
+        "multi_stage_visibility",
+        "texture_sampler_groups",
+        "storage_read_write",
+    }) |case_name| {
+        const source = @embedFile("testdata/" ++ case_name ++ ".json");
+        const expected = @embedFile("testdata/" ++ case_name ++ ".zig.golden");
+        const parsed = try std.json.parseFromSlice(Value, std.testing.allocator, source, .{});
+        defer parsed.deinit();
+        const generated = try generate(&parsed.value, std.testing.allocator);
+        defer std.testing.allocator.free(generated);
+        try std.testing.expectEqualStrings(expected, generated);
+    }
 }

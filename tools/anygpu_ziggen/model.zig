@@ -66,5 +66,12 @@ fn readType(model: *Model, value: *const Value, index: usize, is_shared: bool, a
         if (std.mem.eql(u8, previous.id, id)) return error.DuplicateTypeId;
     }
     const alias = try zigIdentifier(allocator, name, index);
-    model.types[index] = .{ .id = id, .name = name, .descriptor = descriptor, .alias = alias, .is_shared = is_shared };
+    model.types[index] = .{
+        .id = id,
+        .source_id = id,
+        .name = name,
+        .descriptor = descriptor,
+        .alias = alias,
+        .is_shared = is_shared,
+    };
 }

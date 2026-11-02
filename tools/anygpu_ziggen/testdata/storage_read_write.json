@@ -1,0 +1,66 @@
+{
+  "types": [
+    {
+      "id": "t0",
+      "name": "Data",
+      "descriptor": {
+        "Struct": {
+          "size": 16,
+          "alignment": 16,
+          "members": [
+            { "name": "value", "offset": 0, "ty": "st0" }
+          ]
+        }
+      }
+    }
+  ],
+  "shared": {
+    "types": [
+      {
+        "id": "st0",
+        "name": "vec4<f32>",
+        "descriptor": {
+          "Vector": {
+            "length": 4,
+            "scalar": { "name": "float", "width": 4 }
+          }
+        }
+      }
+    ]
+  },
+  "pipelines": {
+    "layout": {
+      "bind_group_layouts": [
+        {
+          "group": 0,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "data",
+              "visibility": ["Compute"],
+              "ty": {
+                "Buffer": {
+                  "buffer_type": { "Storage": { "read_only": "LoadStore" } },
+                  "has_dynamic_offset": false,
+                  "min_binding_size": 16
+                }
+              },
+              "count": null
+            }
+          ]
+        }
+      ],
+      "push_constant_ranges": []
+    },
+    "vertex": null,
+    "fragment": null,
+    "compute": {
+      "entry_point": "cs_main",
+      "compilation_options": {
+        "constants": {},
+        "zero_initialize_workgroup_memory": false
+      }
+    }
+  },
+  "bindgroups": []
+}

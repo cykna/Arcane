@@ -57,6 +57,30 @@ pub fn writeStageList(w: *Writer, value: *const Value) !void {
     try w.writeByte('}');
 }
 
+pub fn writeStageMask(w: *Writer, value: *const Value) !void {
+    if (value.* != .array) return error.InvalidSchema;
+    var flags = [_]bool{ false, false, false };
+    for (value.array.items) |*stage| {
+        const name = try string(stage);
+        if (std.mem.eql(u8, name, "Vertex")) {
+            flags[0] = true;
+        } else if (std.mem.eql(u8, name, "Fragment")) {
+            flags[1] = true;
+        } else if (std.mem.eql(u8, name, "Compute")) {
+            flags[2] = true;
+        } else {
+            return error.UnsupportedStage;
+        }
+    }
+    try w.writeAll(".{ .vertex = ");
+    try w.print("{s}", .{if (flags[0]) "true" else "false"});
+    try w.writeAll(", .fragment = ");
+    try w.print("{s}", .{if (flags[1]) "true" else "false"});
+    try w.writeAll(", .compute = ");
+    try w.print("{s}", .{if (flags[2]) "true" else "false"});
+    try w.writeByte('}');
+}
+
 pub fn writeSnakeEnum(w: *Writer, text: []const u8) !void {
     for (text, 0..) |byte, index| {
         if (std.ascii.isUpper(byte) and index != 0) try w.writeByte('_');

@@ -1,0 +1,71 @@
+{
+  "types": [],
+  "shared": { "types": [] },
+  "pipelines": {
+    "layout": {
+      "bind_group_layouts": [
+        {
+          "group": 0,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "color_texture",
+              "visibility": ["Fragment"],
+              "ty": {
+                "Texture": {
+                  "sample_type": { "Float": { "filterable": true } },
+                  "view_dimension": "D2",
+                  "multisampled": false
+                }
+              },
+              "count": null
+            }
+          ]
+        },
+        {
+          "group": 3,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "color_sampler",
+              "visibility": ["Fragment"],
+              "ty": { "Sampler": "Filtering" },
+              "count": null
+            },
+            {
+              "binding": 1,
+              "name": "target",
+              "visibility": ["Fragment"],
+              "ty": {
+                "StorageTexture": {
+                  "access": "WriteOnly",
+                  "format": "Rgba8Unorm",
+                  "view_dimension": "D2"
+                }
+              },
+              "count": null
+            },
+            {
+              "binding": 2,
+              "name": "history",
+              "visibility": ["Vertex", "Fragment"],
+              "ty": {
+                "Texture": {
+                  "sample_type": "Depth",
+                  "view_dimension": "D2Array",
+                  "multisampled": true
+                }
+              },
+              "count": 4
+            }
+          ]
+        }
+      ],
+      "push_constant_ranges": []
+    },
+    "vertex": null,
+    "fragment": null,
+    "compute": null
+  },
+  "bindgroups": []
+}

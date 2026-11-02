@@ -115,11 +115,11 @@ fn emitMatrix(w: *Writer, name: []const u8, payload: *const schema.Value) !void 
     const size = try checkedMul(columns, stride);
     try w.print(
         \\pub const {s} = extern struct {{
-        \\    _alignment: [0]u8 align({d}),
+        \\    _alignment: [0]u8 align({d}) = .{{}},
         \\    columns: [{d}]{s}Column,
         \\}};
-        \\const {s}Column = extern struct {{
-        \\    _alignment: [0]u8 align({d}),
+        \\pub const {s}Column = extern struct {{
+        \\    _alignment: [0]u8 align({d}) = .{{}},
         \\    value: WgslVec{d}{s} align({d}),
     , .{ name, alignment, columns, name, name, alignment, rows, scalar_name, alignment });
     if (stride > column_size) try w.print("    _padding_0: [{d}]u8,\n", .{stride - column_size});

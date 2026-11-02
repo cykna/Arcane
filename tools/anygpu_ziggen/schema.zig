@@ -4,16 +4,25 @@ pub const Value = std.json.Value;
 
 pub const TypeInfo = struct {
     id: []const u8,
+    source_id: []const u8,
     name: []const u8,
     descriptor: *const Value,
     alias: []const u8,
     is_shared: bool,
+    is_canonical: bool = false,
+    owner_module: ?[]const u8 = null,
+    identity_module_path: ?[]const u8 = null,
+    identity_name: ?[]const u8 = null,
 };
+
+pub const EmitMode = enum { legacy, linked_module, linked_canonical };
 
 pub const Model = struct {
     allocator: Allocator,
     types: []TypeInfo,
     shared_count: usize,
+    emit_mode: EmitMode = .legacy,
+    current_module: ?[]const u8 = null,
 };
 
 pub const Layout = struct {
@@ -23,6 +32,8 @@ pub const Layout = struct {
 
 pub const BindingDetails = struct {
     kind: []const u8,
+    address_space: ?[]const u8 = null,
+    access: ?[]const u8 = null,
     resource_type: ?[]const u8 = null,
     read_only: ?[]const u8 = null,
     sampler_type: ?[]const u8 = null,
@@ -34,6 +45,7 @@ pub const BindingDetails = struct {
     format: ?[]const u8 = null,
     has_dynamic_offset: bool = false,
     min_binding_size: ?u64 = null,
+    ty: ?[]const u8 = null,
 };
 
 pub fn object(value: *const Value) !*const std.json.ObjectMap {

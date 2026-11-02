@@ -1,8 +1,11 @@
 const std = @import("std");
 const schema_lib = @import("schema.zig");
 const common = @import("emit_common.zig");
+const bindings_emit = @import("emit_bindings.zig");
+const layout_mod = @import("layout.zig");
 const Writer = std.Io.Writer;
 const Value = schema_lib.Value;
+const Model = schema_lib.Model;
 const field = schema_lib.field;
 const object = schema_lib.object;
 const string = schema_lib.string;
@@ -12,8 +15,8 @@ const tagged = schema_lib.tagged;
 const writeZigString = common.writeZigString;
 const writeStageList = common.writeStageList;
 
-pub fn emit(w: *Writer, schema_value: *const Value, allocator: std.mem.Allocator) !void {
-    try writePipeline(w, schema_value, allocator);
+pub fn emit(w: *Writer, schema_value: *const Value, allocator: std.mem.Allocator, model: *const Model) !void {
+    try writePipeline(w, schema_value, allocator, model);
 }
 
 fn writePipelineOptions(w: *Writer, name: []const u8, stage: *const Value) !void {
@@ -45,7 +48,7 @@ fn writePipelineOptions(w: *Writer, name: []const u8, stage: *const Value) !void
     try w.print("    pub const {s}_zero_initialize_workgroup_memory = {};\n", .{ name, zero_initialize });
 }
 
-fn writePipeline(w: *Writer, schema: *const Value, allocator: std.mem.Allocator) !void {
+fn writePipeline(w: *Writer, schema: *const Value, allocator: std.mem.Allocator, model: *const Model) !void {
     try w.writeAll(
         \\const zgpu = @import("zgpu");
         \\const wgpu = zgpu.wgpu;
@@ -56,9 +59,9 @@ fn writePipeline(w: *Writer, schema: *const Value, allocator: std.mem.Allocator)
         try w.writeAll(
             \\pub const Pipeline = struct {
             \\    pub const present = false;
-            \\    pub const vertex_entry_point: ?[]const u8 = null;
-            \\    pub const fragment_entry_point: ?[]const u8 = null;
-            \\    pub const compute_entry_point: ?[]const u8 = null;
+            \\    pub const vertex_entry_point: ?[:0]const u8 = null;
+            \\    pub const fragment_entry_point: ?[:0]const u8 = null;
+            \\    pub const compute_entry_point: ?[:0]const u8 = null;
             \\    pub const bind_group_count = 0;
             \\    pub const bind_group_indices = [_]u32{};
             \\    pub const vertex_constants = [_]shared.PipelineConstant{};
@@ -74,21 +77,20 @@ fn writePipeline(w: *Writer, schema: *const Value, allocator: std.mem.Allocator)
         return;
     }
     const vertex_stage = (try object(pipelines_value)).get("vertex") orelse return error.MissingField;
-    if (vertex_stage != .null) try writeVertexInputs(w, schema, &vertex_stage, allocator);
+    if (vertex_stage != .null) try writeVertexInputs(w, &vertex_stage, allocator, model);
     try w.writeAll("pub const Pipeline = struct {\n");
     try w.writeAll("    pub const present = true;\n");
     const layout = try field(pipelines_value, "layout");
-    const groups = try field(layout, "bind_group_layouts");
-    if (groups.* != .array) return error.InvalidSchema;
-    try w.print("    pub const bind_group_count = {d};\n    pub const bind_group_indices = [_]u32{{", .{groups.array.items.len});
-    for (groups.array.items, 0..) |*group, index| {
+    const groups = try bindings_emit.collectGroups(schema, allocator);
+    try w.print("    pub const bind_group_count = {d};\n    pub const bind_group_indices = [_]u32{{", .{groups.len});
+    for (groups, 0..) |group, index| {
         if (index != 0) try w.writeAll(", ");
-        try w.print("{d}", .{try number(try field(group, "group"))});
+        try w.print("{d}", .{group.group});
     }
     try w.writeAll("};\n");
     const stage_names = [_][]const u8{ "vertex", "fragment", "compute" };
     for (stage_names) |name| {
-        try w.print("    pub const {s}_entry_point: ?[]const u8 = ", .{name});
+        try w.print("    pub const {s}_entry_point: ?[:0]const u8 = ", .{name});
         const stage = (try object(pipelines_value)).get(name) orelse return error.MissingField;
         if (stage == .null) {
             try w.writeAll("null;\n");
@@ -118,7 +120,6 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
     const vertex = (try object(pipelines)).get("vertex") orelse return error.MissingField;
     if (vertex == .null) return;
     const fragment = (try object(pipelines)).get("fragment") orelse return error.MissingField;
-    const vertex_entry = try string(try field(&vertex, "entry_point"));
     const fragment_entry = if (fragment != .null) try string(try field(&fragment, "entry_point")) else null;
     try writeVertexBufferLayouts(w, &vertex);
 
@@ -126,6 +127,7 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\    pub const CreateOptions = struct {
         \\        color_format: wgpu.TextureFormat = zgpu.GraphicsContext.swapchain_format,
         \\        primitive: wgpu.PrimitiveState = .{},
+        \\        layout: zgpu.PipelineLayoutHandle = .{},
         \\    };
         \\
         \\    pub fn create(gctx: *zgpu.GraphicsContext, source: [:0]const u8) zgpu.RenderPipelineHandle {
@@ -148,6 +150,15 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\        return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{});
         \\    }
         \\
+        \\    pub fn createWithVertexLayoutsAndLayout(
+        \\        gctx: *zgpu.GraphicsContext,
+        \\        source: [:0]const u8,
+        \\        layouts: []const wgpu.VertexBufferLayout,
+        \\        layout: zgpu.PipelineLayoutHandle,
+        \\    ) zgpu.RenderPipelineHandle {
+        \\        return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{ .layout = layout });
+        \\    }
+        \\
         \\    pub fn createWithVertexLayoutsAndOptions(
         \\        gctx: *zgpu.GraphicsContext,
         \\        source: [:0]const u8,
@@ -159,18 +170,14 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\
     );
 
-    if (fragment_entry) |entry| {
+    if (fragment_entry != null) {
         try w.writeAll(
             \\        const color_targets = [_]wgpu.ColorTargetState{.{
             \\            .format = options.color_format,
             \\        }};
             \\        const fragment = wgpu.FragmentState{
             \\            .module = shader,
-            \\            .entry_point = 
-        );
-        try writeZigString(w, entry);
-        try w.writeAll(
-            \\,
+            \\            .entry_point = fragment_entry_point.?,
             \\            .target_count = color_targets.len,
             \\            .targets = &color_targets,
             \\        };
@@ -183,11 +190,7 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\            .layout = null,
         \\            .vertex = .{
         \\                .module = shader,
-        \\                .entry_point = 
-    );
-    try writeZigString(w, vertex_entry);
-    try w.writeAll(
-        \\,
+        \\                .entry_point = vertex_entry_point.?,
         \\                .buffer_count = layouts.len,
         \\                .buffers = if (layouts.len == 0) null else layouts.ptr,
         \\            },
@@ -202,7 +205,7 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
     try w.writeAll(
         \\
         \\        };
-        \\        return gctx.createRenderPipeline(.{}, descriptor);
+        \\        return gctx.createRenderPipeline(options.layout, descriptor);
         \\    }
         \\
         \\    pub fn bind(
@@ -223,9 +226,9 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
 
 fn writeVertexInputs(
     w: *Writer,
-    schema: *const Value,
     vertex: *const Value,
     allocator: std.mem.Allocator,
+    model: *const Model,
 ) !void {
     const buffers = try field(vertex, "buffers");
     if (buffers.* != .array) return error.UnsupportedVertexBufferLayout;
@@ -269,7 +272,7 @@ fn writeVertexInputs(
             if (location == try number(try field(previous, "shader_location"))) return error.DuplicateVertexInputLocation;
         }
         const ty_id = try string(try field(input, "ty"));
-        const mapped = try vertexElementType(schema, ty_id, allocator);
+        const mapped = try vertexElementType(model, ty_id, allocator);
         const schema_format = try string(try field(input, "format"));
         if (!std.mem.eql(u8, schema_format, mapped.format)) return error.VertexInputFormatMismatch;
     }
@@ -288,7 +291,7 @@ fn writeVertexInputs(
     for (inputs) |input| {
         const name = try string(try field(input, "name"));
         const location = try number(try field(input, "shader_location"));
-        const mapped = try vertexElementType(schema, try string(try field(input, "ty")), allocator);
+        const mapped = try vertexElementType(model, try string(try field(input, "ty")), allocator);
         try w.writeAll("    .{ .field_name = ");
         try writeZigString(w, name);
         try w.writeAll(", .element_type = ");
@@ -303,9 +306,9 @@ const VertexElementType = struct {
     format: []const u8,
 };
 
-fn vertexElementType(schema: *const Value, id: []const u8, allocator: std.mem.Allocator) !VertexElementType {
-    const ty = try findType(schema, id);
-    const descriptor = try tagged(try field(ty, "descriptor"));
+fn vertexElementType(model: *const Model, id: []const u8, allocator: std.mem.Allocator) !VertexElementType {
+    const type_index = try layout_mod.findType(model, id);
+    const descriptor = try tagged(model.types[type_index].descriptor);
     if (std.mem.eql(u8, descriptor.name, "Scalar")) {
         const scalar = try field(descriptor.payload, "scalar");
         const zig_type = try vertexScalarType(scalar);
@@ -344,22 +347,6 @@ fn vertexScalarType(scalar: *const Value) ![]const u8 {
     if (std.mem.eql(u8, name, "sint")) return "i32";
     if (std.mem.eql(u8, name, "uint")) return "u32";
     return error.UnsupportedVertexInputType;
-}
-
-fn findType(schema: *const Value, id: []const u8) !*const Value {
-    const types = try field(schema, "types");
-    if (types.* != .array) return error.InvalidSchema;
-    for (types.array.items) |*ty| {
-        if (std.mem.eql(u8, try string(try field(ty, "id")), id)) return ty;
-    }
-    if ((try object(schema)).get("shared")) |shared| {
-        const shared_types = try field(&shared, "types");
-        if (shared_types.* != .array) return error.InvalidSchema;
-        for (shared_types.array.items) |*ty| {
-            if (std.mem.eql(u8, try string(try field(ty, "id")), id)) return ty;
-        }
-    }
-    return error.UnknownType;
 }
 
 fn writeVertexBufferLayouts(w: *Writer, vertex: *const Value) !void {

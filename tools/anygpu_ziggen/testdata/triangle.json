@@ -1,0 +1,311 @@
+{
+  "types": [
+    {
+      "id": "t0",
+      "name": "VertexInput",
+      "descriptor": {
+        "Struct": {
+          "size": 32,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "position",
+              "offset": 0,
+              "ty": "st0",
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            },
+            {
+              "name": "color",
+              "offset": 16,
+              "ty": "st1",
+              "location": 1,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t1",
+      "name": "VertexOutput",
+      "descriptor": {
+        "Struct": {
+          "size": 32,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "position",
+              "offset": 0,
+              "ty": "st1",
+              "builtin": "position"
+            },
+            {
+              "name": "color",
+              "offset": 16,
+              "ty": "st1",
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "name": "package_globals_Camera",
+      "descriptor": {
+        "Struct": {
+          "size": 256,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "view",
+              "offset": 0,
+              "ty": "st2"
+            },
+            {
+              "name": "projection",
+              "offset": 64,
+              "ty": "st2"
+            },
+            {
+              "name": "view_projection",
+              "offset": 128,
+              "ty": "st2"
+            },
+            {
+              "name": "inverse_view_projection",
+              "offset": 192,
+              "ty": "st2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t3",
+      "name": "package_globals_MeshData",
+      "descriptor": {
+        "Struct": {
+          "size": 128,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "model",
+              "offset": 0,
+              "ty": "st2"
+            },
+            {
+              "name": "normal_matrix",
+              "offset": 64,
+              "ty": "st2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t4",
+      "name": "array<package_globals_MeshData>",
+      "descriptor": {
+        "Array": {
+          "base": "t3",
+          "size": null,
+          "stride": 128
+        }
+      }
+    }
+  ],
+  "shared": {
+    "types": [
+      {
+        "id": "st0",
+        "name": "vec3<f32>",
+        "descriptor": {
+          "Vector": {
+            "length": 3,
+            "scalar": {
+              "name": "float",
+              "width": 4
+            }
+          }
+        }
+      },
+      {
+        "id": "st1",
+        "name": "vec4<f32>",
+        "descriptor": {
+          "Vector": {
+            "length": 4,
+            "scalar": {
+              "name": "float",
+              "width": 4
+            }
+          }
+        }
+      },
+      {
+        "id": "st2",
+        "name": "mat4x4<f32>",
+        "descriptor": {
+          "Matrix": {
+            "columns": 4,
+            "rows": 4,
+            "scalar": {
+              "name": "float",
+              "width": 4
+            }
+          }
+        }
+      },
+      {
+        "id": "st3",
+        "name": "u32",
+        "descriptor": {
+          "Scalar": {
+            "scalar": {
+              "name": "uint",
+              "width": 4
+            }
+          }
+        }
+      }
+    ]
+  },
+  "pipelines": {
+    "layout": {
+      "bind_group_layouts": [
+        {
+          "group": 0,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "camera",
+              "visibility": [
+                "Vertex"
+              ],
+              "ty": {
+                "Buffer": {
+                  "buffer_type": "Uniform",
+                  "has_dynamic_offset": false,
+                  "min_binding_size": 256
+                }
+              },
+              "count": null
+            }
+          ]
+        },
+        {
+          "group": 1,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "instances",
+              "visibility": [
+                "Vertex"
+              ],
+              "ty": {
+                "Buffer": {
+                  "buffer_type": {
+                    "Storage": {
+                      "read_only": "Load"
+                    }
+                  },
+                  "has_dynamic_offset": false,
+                  "min_binding_size": 128
+                }
+              },
+              "count": null
+            }
+          ]
+        }
+      ],
+      "push_constant_ranges": []
+    },
+    "vertex": {
+      "entry_point": "vs_main",
+      "compilation_options": {
+        "constants": {},
+        "zero_initialize_workgroup_memory": false
+      },
+      "inputs": [
+        {
+          "name": "input",
+          "ty": "t0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "position",
+          "ty": "st1",
+          "builtin": "position"
+        },
+        {
+          "name": "color",
+          "ty": "st1",
+          "location": 0,
+          "interpolation": "Perspective",
+          "sampling": "Center"
+        }
+      ],
+      "buffers": [
+        {
+          "array_stride": 32,
+          "step_mode": "Vertex",
+          "attributes": [
+            {
+              "name": "position",
+              "shader_location": 0,
+              "ty": "st0",
+              "format": "Float32x3",
+              "offset": 0
+            },
+            {
+              "name": "color",
+              "shader_location": 1,
+              "ty": "st1",
+              "format": "Float32x4",
+              "offset": 16
+            }
+          ]
+        }
+      ]
+    },
+    "fragment": {
+      "entry_point": "fs_main",
+      "compilation_options": {
+        "constants": {},
+        "zero_initialize_workgroup_memory": false
+      },
+      "inputs": [
+        {
+          "name": "position",
+          "ty": "st1",
+          "builtin": "position"
+        },
+        {
+          "name": "color",
+          "ty": "st1",
+          "location": 0,
+          "interpolation": "Perspective",
+          "sampling": "Center"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "ty": "st1",
+          "location": 0,
+          "interpolation": "Perspective",
+          "sampling": "Center"
+        }
+      ]
+    },
+    "compute": null
+  },
+  "bindgroups": []
+}

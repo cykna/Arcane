@@ -1,0 +1,54 @@
+// Generated from anygpu JSON. Do not edit by hand.
+const shared = @import("shared.zig");
+
+
+pub const type_layouts = [_]shared.WgslTypeLayout{
+};
+
+pub const bindings = [_]shared.Binding{
+    .{ .group = 0, .binding = 0, .name = "color_texture", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .float, .filterable = true, .view_dimension = .d2, .multisampled = false, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+    .{ .group = 3, .binding = 0, .name = "color_sampler", .kind = .sampler, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = .filtering, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+    .{ .group = 3, .binding = 1, .name = "target", .kind = .storage_texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = .d2, .multisampled = null, .storage_access = .write_only, .format = "Rgba8Unorm", .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+    .{ .group = 3, .binding = 2, .name = "history", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = true, .fragment = true, .compute = false}, .count = 4, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .depth, .filterable = null, .view_dimension = .d2_array, .multisampled = true, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+};
+
+pub const group_indices = [_]u32{0, 3};
+
+pub const group_bindings = [_][]const shared.Binding{
+    bindings[0..1],
+    bindings[1..4],
+};
+
+pub fn bindingsOfGroup(comptime group: u32) []const shared.Binding {
+    inline for (group_indices, 0..) |candidate, index| {
+        if (group == candidate) return group_bindings[index];
+    }
+    @compileError("unknown bind group");
+}
+
+const zgpu = @import("zgpu");
+const wgpu = zgpu.wgpu;
+pub const Pipeline = struct {
+    pub const present = true;
+    pub const bind_group_count = 2;
+    pub const bind_group_indices = [_]u32{0, 3};
+    pub const vertex_entry_point: ?[:0]const u8 = null;
+    pub const vertex_constants = [_]shared.PipelineConstant{
+    };
+    pub const vertex_zero_initialize_workgroup_memory = false;
+    pub const fragment_entry_point: ?[:0]const u8 = null;
+    pub const fragment_constants = [_]shared.PipelineConstant{
+    };
+    pub const fragment_zero_initialize_workgroup_memory = false;
+    pub const compute_entry_point: ?[:0]const u8 = null;
+    pub const compute_constants = [_]shared.PipelineConstant{
+    };
+    pub const compute_zero_initialize_workgroup_memory = false;
+    pub const push_constant_ranges = [_]shared.PushConstantRange{
+    };
+};
+
+comptime {
+    _ = bindings;
+    _ = Pipeline;
+}

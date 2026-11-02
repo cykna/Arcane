@@ -1,10 +1,12 @@
 const std = @import("std");
 const schema = @import("schema.zig");
 const generator = @import("generate.zig");
+const linked_generator = @import("generate_linked.zig");
 const Value = schema.Value;
 const Allocator = std.mem.Allocator;
 const generate = generator.generate;
 const generateShared = generator.generateShared;
+const generateLinked = linked_generator.generate;
 
 fn replaceExtension(allocator: Allocator, path: []const u8) ![]const u8 {
     const extension = std.fs.path.extension(path);
@@ -24,8 +26,35 @@ fn checkShaderOutput(path: []const u8) !void {
     if (std.mem.eql(u8, std.fs.path.basename(path), "shared.zig")) return error.OutputConflictsWithShared;
 }
 
+fn isLinkedSchema(value: *const Value) bool {
+    const root = schema.object(value) catch return false;
+    return root.get("modules") != null;
+}
+
+fn writeLinkedFiles(allocator: Allocator, io: std.Io, input: []const u8, output_path: []const u8, value: *const Value) !void {
+    if (std.mem.eql(u8, std.fs.path.extension(output_path), ".zig")) return error.ExpectedOutputDirectory;
+    const files = generateLinked(value, allocator) catch |err| {
+        reportPathError("failed to generate linked bindings from", input, err);
+        return err;
+    };
+    defer allocator.free(files);
+    try std.Io.Dir.cwd().createDirPath(io, output_path);
+    const output_dir = openDir(output_path, io, false) catch |err| {
+        reportPathError("failed to open output directory", output_path, err);
+        return err;
+    };
+    defer output_dir.close(io);
+    for (files) |file| {
+        defer allocator.free(file.path);
+        defer allocator.free(file.contents);
+        output_dir.writeFile(io, .{ .sub_path = file.path, .data = file.contents }) catch |err| {
+            reportPathError("failed to write", file.path, err);
+            return err;
+        };
+    }
+}
+
 fn generateOne(allocator: Allocator, io: std.Io, input: []const u8, output_path: []const u8) !void {
-    try checkShaderOutput(output_path);
     const source = readSchema(allocator, io, input) catch |err| {
         reportPathError("failed to read", input, err);
         return err;
@@ -36,6 +65,10 @@ fn generateOne(allocator: Allocator, io: std.Io, input: []const u8, output_path:
         return err;
     };
     defer parsed.deinit();
+    if (isLinkedSchema(&parsed.value) or std.mem.eql(u8, std.fs.path.basename(input), "linked.json")) {
+        return writeLinkedFiles(allocator, io, input, output_path, &parsed.value);
+    }
+    try checkShaderOutput(output_path);
     const generated = generate(&parsed.value, allocator) catch |err| {
         reportPathError("failed to generate bindings from", input, err);
         return err;
@@ -95,11 +128,21 @@ fn generateDirectory(allocator: Allocator, io: std.Io, input: []const u8, output
     };
     defer output_dir.close(io);
     var count: usize = 0;
+    var linked_input = false;
     var counter = input_dir.iterate();
     while (try counter.next(io)) |entry| {
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".json")) count += 1;
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".json")) {
+            count += 1;
+            if (std.mem.eql(u8, entry.name, "linked.json")) linked_input = true;
+        }
     }
     if (count == 0) return error.NoJsonInputs;
+    if (linked_input) {
+        if (count != 1) return error.MixedLinkedAndShaderInputs;
+        const linked_path = try std.fs.path.join(allocator, &.{ input, "linked.json" });
+        defer allocator.free(linked_path);
+        return generateOne(allocator, io, linked_path, output_path);
+    }
     const input_names = try work_allocator.alloc([]const u8, count);
     var name_iterator = input_dir.iterate();
     var name_count: usize = 0;
@@ -172,7 +215,10 @@ fn run(init: std.process.Init) !void {
         return;
     }
     if (stat.kind != .file or !std.mem.endsWith(u8, input, ".json")) return error.ExpectedJsonFile;
-    const destination = output orelse try replaceExtension(init.gpa, input);
+    const destination = output orelse if (std.mem.eql(u8, std.fs.path.basename(input), "linked.json"))
+        return error.LinkedOutputDirectoryRequired
+    else
+        try replaceExtension(init.gpa, input);
     try generateOne(init.gpa, init.io, input, destination);
 }
 

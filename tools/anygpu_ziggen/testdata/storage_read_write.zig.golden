@@ -1,0 +1,68 @@
+// Generated from anygpu JSON. Do not edit by hand.
+const shared = @import("shared.zig");
+pub const Data = extern struct {
+    _alignment: [0]u8 align(16)=.{},
+    value: shared.WgslVec4f32 align(16),
+
+    pub fn init(value: shared.WgslVec4f32) @This() {
+        return .{
+            ._alignment = .{},
+            .value = value,
+        };
+    }
+};
+
+
+pub const type_layouts = [_]shared.WgslTypeLayout{
+    .{ .id = "t0", .name = "Data", .size = 16, .alignment = 16, .array_stride = null, .array_length = null },
+};
+
+pub const bindings = [_]shared.Binding{
+    .{ .group = 0, .binding = 0, .name = "data", .kind = .buffer, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = false, .compute = true}, .count = null, .resource_type = .storage, .read_only = .load_store, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 16, .ty = null },
+};
+
+pub const group_indices = [_]u32{0};
+
+pub const group_bindings = [_][]const shared.Binding{
+    bindings[0..1],
+};
+
+pub fn bindingsOfGroup(comptime group: u32) []const shared.Binding {
+    inline for (group_indices, 0..) |candidate, index| {
+        if (group == candidate) return group_bindings[index];
+    }
+    @compileError("unknown bind group");
+}
+
+const zgpu = @import("zgpu");
+const wgpu = zgpu.wgpu;
+pub const Pipeline = struct {
+    pub const present = true;
+    pub const bind_group_count = 1;
+    pub const bind_group_indices = [_]u32{0};
+    pub const vertex_entry_point: ?[:0]const u8 = null;
+    pub const vertex_constants = [_]shared.PipelineConstant{
+    };
+    pub const vertex_zero_initialize_workgroup_memory = false;
+    pub const fragment_entry_point: ?[:0]const u8 = null;
+    pub const fragment_constants = [_]shared.PipelineConstant{
+    };
+    pub const fragment_zero_initialize_workgroup_memory = false;
+    pub const compute_entry_point: ?[:0]const u8 = "cs_main";
+    pub const compute_constants = [_]shared.PipelineConstant{
+    };
+    pub const compute_zero_initialize_workgroup_memory = false;
+    pub const push_constant_ranges = [_]shared.PushConstantRange{
+    };
+};
+
+comptime {
+    _ = bindings;
+    _ = Pipeline;
+    if (@sizeOf(Data) != 16) @compileError("anygpu layout mismatch: generated type size does not match the schema");
+    if (@alignOf(Data) != 16) @compileError("anygpu layout mismatch: generated type alignment does not match the schema");
+    for (bindings) |binding| {
+        const minimum = binding.min_binding_size orelse continue;
+        if ((minimum == 16) or (minimum == 16)) {} else @compileError("anygpu binding min_binding_size does not match any reflected type size or runtime array stride");
+    }
+}

@@ -1,5 +1,6 @@
 const std = @import("std");
 const schema = @import("schema.zig");
+const linked_model = @import("linked_model.zig");
 const Model = schema.Model;
 const Layout = schema.Layout;
 const Value = schema.Value;
@@ -75,10 +76,18 @@ pub fn vectorAlignment(length: u32, scalar_size: u32) !u32 {
 }
 
 pub fn findType(model: *const Model, id: []const u8) !usize {
+    if (model.emit_mode != .legacy) return linked_model.findId(model, id, model.current_module);
     for (model.types, 0..) |ty, index| {
         if (std.mem.eql(u8, ty.id, id)) return index;
     }
     return error.UnknownType;
+}
+
+pub fn findTypeReference(model: *const Model, reference: *const Value) !usize {
+    if (model.emit_mode != .legacy) {
+        return linked_model.findReference(model, reference, model.current_module);
+    }
+    return findType(model, try string(reference));
 }
 
 pub fn typeLayout(model: *const Model, index: usize, depth: usize) anyerror!Layout {
@@ -112,8 +121,8 @@ pub fn typeLayout(model: *const Model, index: usize, depth: usize) anyerror!Layo
         };
     }
     if (std.mem.eql(u8, descriptor.name, "Array")) {
-        const base_id = try string(try field(descriptor.payload, "base"));
-        const base = try typeLayout(model, try findType(model, base_id), depth + 1);
+        const base_value = try field(descriptor.payload, "base");
+        const base = try typeLayout(model, try findTypeReference(model, base_value), depth + 1);
         const stride = try number(try field(descriptor.payload, "stride"));
         if (stride < base.size or stride % base.alignment != 0) return error.InvalidLayout;
         const size_value = try field(descriptor.payload, "size");
@@ -132,8 +141,8 @@ pub fn typeLayout(model: *const Model, index: usize, depth: usize) anyerror!Layo
         var end: u32 = 0;
         for (members_value.array.items) |*member| {
             const offset = try number(try field(member, "offset"));
-            const member_id = try string(try field(member, "ty"));
-            const member_layout = try typeLayout(model, try findType(model, member_id), depth + 1);
+            const member_type = try field(member, "ty");
+            const member_layout = try typeLayout(model, try findTypeReference(model, member_type), depth + 1);
             if (offset < end or offset % member_layout.alignment != 0) return error.InvalidLayout;
             end = try checkedAdd(offset, member_layout.size);
             if (end > size) return error.InvalidLayout;

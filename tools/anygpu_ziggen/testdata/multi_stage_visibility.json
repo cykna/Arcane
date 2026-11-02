@@ -1,0 +1,33 @@
+{
+  "types": [],
+  "shared": { "types": [] },
+  "pipelines": {
+    "layout": {
+      "bind_group_layouts": [
+        {
+          "group": 0,
+          "entries": [
+            {
+              "binding": 0,
+              "name": "camera",
+              "visibility": ["Vertex", "Fragment"],
+              "ty": {
+                "Buffer": {
+                  "buffer_type": "Uniform",
+                  "has_dynamic_offset": false,
+                  "min_binding_size": null
+                }
+              },
+              "count": null
+            }
+          ]
+        }
+      ],
+      "push_constant_ranges": []
+    },
+    "vertex": null,
+    "fragment": null,
+    "compute": null
+  },
+  "bindgroups": []
+}

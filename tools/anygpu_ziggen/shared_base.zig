@@ -1,3 +1,7 @@
+const std = @import("std");
+const zgpu = @import("zgpu");
+const wgpu = zgpu.wgpu;
+
 pub const ShaderStage = enum { vertex, fragment, compute };
 pub const BindingKind = enum { buffer, sampler, texture, storage_texture };
 pub const BufferResourceType = enum { uniform, storage };
@@ -6,13 +10,17 @@ pub const SamplerBindingType = enum { filtering, non_filtering, comparison };
 pub const TextureSampleType = enum { float, depth, sint, uint };
 pub const TextureViewDimension = enum { d1, d2, d2_array, cube, cube_array, d3 };
 pub const StorageTextureAccess = enum { write_only, read_only, read_write };
+pub const ResourceAddressSpace = enum { uniform, storage, handle };
+pub const ResourceAccess = enum { read, write, read_write, atomic, not_applicable };
 
 pub const Binding = struct {
     group: ?u32,
     binding: u32,
     name: []const u8,
     kind: BindingKind,
-    visibility: []const ShaderStage,
+    address_space: ?ResourceAddressSpace,
+    access: ?ResourceAccess,
+    visibility: wgpu.ShaderStage,
     count: ?u32,
     resource_type: ?BufferResourceType,
     read_only: ?StorageBufferAccess,
@@ -24,8 +32,173 @@ pub const Binding = struct {
     storage_access: ?StorageTextureAccess,
     format: ?[]const u8,
     has_dynamic_offset: bool,
+    /// Minimum binding size in bytes reflected by anygpu. For a runtime-sized
+    /// array this is the size of one element (the schema's array stride), not
+    /// the size of the whole buffer. `null` means the whole binding.
     min_binding_size: ?u64,
+    ty: ?type = null,
 };
+
+pub fn toBindGroupLayoutEntry(
+    binding: Binding,
+    visibility_override: ?wgpu.ShaderStage,
+) wgpu.BindGroupLayoutEntry {
+    if (binding.count != null) {
+        @panic("anygpu binding arrays are not supported by this wgpu API");
+    }
+    var entry = wgpu.BindGroupLayoutEntry{
+        .binding = binding.binding,
+        .visibility = visibility_override orelse binding.visibility,
+    };
+    switch (binding.kind) {
+        .buffer => {
+            const resource_type = binding.resource_type orelse
+                @panic("anygpu buffer binding is missing its resource type");
+            entry.buffer = .{
+                .binding_type = switch (resource_type) {
+                    .uniform => .uniform,
+                    .storage => switch (binding.read_only orelse .load_store) {
+                        .load => .read_only_storage,
+                        .store, .load_store, .atomic => .storage,
+                    },
+                },
+                .has_dynamic_offset = if (binding.has_dynamic_offset) .true else .false,
+                .min_binding_size = binding.min_binding_size orelse 0,
+            };
+        },
+        .sampler => {
+            const sampler_type = binding.sampler_type orelse
+                @panic("anygpu sampler binding is missing its sampler type");
+            entry.sampler = .{ .binding_type = switch (sampler_type) {
+                .filtering => .filtering,
+                .non_filtering => .non_filtering,
+                .comparison => .comparison,
+            } };
+        },
+        .texture => {
+            const sample_type = binding.sample_type orelse
+                @panic("anygpu texture binding is missing its sample type");
+            entry.texture = .{
+                .sample_type = switch (sample_type) {
+                    .float => if (binding.filterable orelse true) .float else .unfilterable_float,
+                    .depth => .depth,
+                    .sint => .sint,
+                    .uint => .uint,
+                },
+                .view_dimension = wgpuTextureViewDimension(binding.view_dimension orelse
+                    @panic("anygpu texture binding is missing its view dimension")),
+                .multisampled = binding.multisampled orelse false,
+            };
+        },
+        .storage_texture => {
+            entry.storage_texture = .{
+                .access = wgpuStorageTextureAccess(binding.storage_access orelse
+                    @panic("anygpu storage texture binding is missing its access mode")),
+                .format = textureFormat(binding.format orelse
+                    @panic("anygpu storage texture binding is missing its format")),
+                .view_dimension = wgpuTextureViewDimension(binding.view_dimension orelse
+                    @panic("anygpu storage texture binding is missing its view dimension")),
+            };
+        },
+    }
+    return entry;
+}
+
+pub const bindGroupLayoutEntry = toBindGroupLayoutEntry;
+
+pub fn stageMask(stages: []const ShaderStage) wgpu.ShaderStage {
+    var mask = wgpu.ShaderStage{};
+    for (stages) |stage| switch (stage) {
+        .vertex => mask.vertex = true,
+        .fragment => mask.fragment = true,
+        .compute => mask.compute = true,
+    };
+    return mask;
+}
+
+fn shaderStageMask(stages: []const ShaderStage) wgpu.ShaderStage {
+    var mask = wgpu.ShaderStage{};
+    for (stages) |stage| switch (stage) {
+        .vertex => mask.vertex = true,
+        .fragment => mask.fragment = true,
+        .compute => mask.compute = true,
+    };
+    return mask;
+}
+
+fn wgpuTextureViewDimension(dimension: TextureViewDimension) wgpu.TextureViewDimension {
+    return switch (dimension) {
+        .d1 => .tvdim_1d,
+        .d2 => .tvdim_2d,
+        .d2_array => .tvdim_2d_array,
+        .cube => .tvdim_cube,
+        .cube_array => .tvdim_cube_array,
+        .d3 => .tvdim_3d,
+    };
+}
+
+fn wgpuStorageTextureAccess(access: StorageTextureAccess) wgpu.StorageTextureAccess {
+    return switch (access) {
+        .write_only => .write_only,
+        .read_only, .read_write => @panic("this wgpu build only supports write-only storage textures"),
+    };
+}
+
+const TextureFormatAlias = struct {
+    name: []const u8,
+    format: wgpu.TextureFormat,
+};
+
+const texture_format_aliases = [_]TextureFormatAlias{
+    .{ .name = "r8unorm", .format = .r8_unorm },
+    .{ .name = "r8snorm", .format = .r8_snorm },
+    .{ .name = "r8uint", .format = .r8_uint },
+    .{ .name = "r8sint", .format = .r8_sint },
+    .{ .name = "r16uint", .format = .r16_uint },
+    .{ .name = "r16sint", .format = .r16_sint },
+    .{ .name = "r16float", .format = .r16_float },
+    .{ .name = "rg8unorm", .format = .rg8_unorm },
+    .{ .name = "rg8snorm", .format = .rg8_snorm },
+    .{ .name = "rg8uint", .format = .rg8_uint },
+    .{ .name = "rg8sint", .format = .rg8_sint },
+    .{ .name = "r32float", .format = .r32_float },
+    .{ .name = "r32uint", .format = .r32_uint },
+    .{ .name = "r32sint", .format = .r32_sint },
+    .{ .name = "rg16uint", .format = .rg16_uint },
+    .{ .name = "rg16sint", .format = .rg16_sint },
+    .{ .name = "rg16float", .format = .rg16_float },
+    .{ .name = "rgba8unorm", .format = .rgba8_unorm },
+    .{ .name = "rgba8snorm", .format = .rgba8_snorm },
+    .{ .name = "rgba8uint", .format = .rgba8_uint },
+    .{ .name = "rgba8sint", .format = .rgba8_sint },
+    .{ .name = "bgra8unorm", .format = .bgra8_unorm },
+    .{ .name = "rgb10a2unorm", .format = .rgb10_a2_unorm },
+    .{ .name = "rg11b10ufloat", .format = .rg11_b10_ufloat },
+    .{ .name = "rg32float", .format = .rg32_float },
+    .{ .name = "rg32uint", .format = .rg32_uint },
+    .{ .name = "rg32sint", .format = .rg32_sint },
+    .{ .name = "rgba16uint", .format = .rgba16_uint },
+    .{ .name = "rgba16sint", .format = .rgba16_sint },
+    .{ .name = "rgba16float", .format = .rgba16_float },
+    .{ .name = "rgba32float", .format = .rgba32_float },
+    .{ .name = "rgba32uint", .format = .rgba32_uint },
+    .{ .name = "rgba32sint", .format = .rgba32_sint },
+};
+
+pub fn textureFormat(format: []const u8) wgpu.TextureFormat {
+    var normalized: [64]u8 = undefined;
+    if (format.len > normalized.len) @panic("texture format name is too long");
+    var length: usize = 0;
+    for (format) |byte| {
+        if (byte == '_') continue;
+        normalized[length] = std.ascii.toLower(byte);
+        length += 1;
+    }
+    for (texture_format_aliases) |alias| {
+        if (std.mem.eql(u8, normalized[0..length], alias.name)) return alias.format;
+    }
+    @panic("texture format is not supported by this wgpu build");
+}
 
 pub const WgslTypeLayout = struct {
     id: []const u8,
