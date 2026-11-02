@@ -176,7 +176,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
     const ziggen_test_module = b.createModule(.{
-        .root_source_file = b.path("tools/anygpu_ziggen/generate.zig"),
+        .root_source_file = b.path("tools/anygpu_ziggen/generate_linked.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
     });
