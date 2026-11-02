@@ -1,0 +1,378 @@
+{
+  "schema_version": 2,
+  "types": [
+    {
+      "id": "ct0",
+      "name": "VertexInput",
+      "identity": {
+        "module_path": "package::triangle",
+        "name": "VertexInput"
+      },
+      "descriptor": {
+        "Struct": {
+          "size": 32,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "position",
+              "offset": 0,
+              "ty": {
+                "Canonical": "ct4"
+              },
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            },
+            {
+              "name": "color",
+              "offset": 16,
+              "ty": {
+                "Canonical": "ct5"
+              },
+              "location": 1,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ct1",
+      "name": "VertexOutput",
+      "identity": {
+        "module_path": "package::triangle",
+        "name": "VertexOutput"
+      },
+      "descriptor": {
+        "Struct": {
+          "size": 32,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "position",
+              "offset": 0,
+              "ty": {
+                "Canonical": "ct5"
+              },
+              "builtin": "position"
+            },
+            {
+              "name": "color",
+              "offset": 16,
+              "ty": {
+                "Canonical": "ct5"
+              },
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ct2",
+      "name": "Camera",
+      "identity": {
+        "module_path": "package::globals",
+        "name": "Camera"
+      },
+      "descriptor": {
+        "Struct": {
+          "size": 256,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "view",
+              "offset": 0,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            },
+            {
+              "name": "projection",
+              "offset": 64,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            },
+            {
+              "name": "view_projection",
+              "offset": 128,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            },
+            {
+              "name": "inverse_view_projection",
+              "offset": 192,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ct3",
+      "name": "MeshData",
+      "identity": {
+        "module_path": "package::globals",
+        "name": "MeshData"
+      },
+      "descriptor": {
+        "Struct": {
+          "size": 128,
+          "alignment": 16,
+          "members": [
+            {
+              "name": "model",
+              "offset": 0,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            },
+            {
+              "name": "normal_matrix",
+              "offset": 64,
+              "ty": {
+                "Canonical": "ct6"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ct4",
+      "name": "vec3<f32>",
+      "descriptor": {
+        "Vector": {
+          "length": 3,
+          "scalar": {
+            "name": "float",
+            "width": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "ct5",
+      "name": "vec4<f32>",
+      "descriptor": {
+        "Vector": {
+          "length": 4,
+          "scalar": {
+            "name": "float",
+            "width": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "ct6",
+      "name": "mat4x4<f32>",
+      "descriptor": {
+        "Matrix": {
+          "columns": 4,
+          "rows": 4,
+          "scalar": {
+            "name": "float",
+            "width": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "ct7",
+      "name": "u32",
+      "descriptor": {
+        "Scalar": {
+          "scalar": {
+            "name": "uint",
+            "width": 4
+          }
+        }
+      }
+    }
+  ],
+  "modules": [
+    {
+      "id": "package::triangle",
+      "types": [
+        {
+          "id": "t4",
+          "name": "array<package_globals_MeshData>",
+          "descriptor": {
+            "Array": {
+              "base": {
+                "Canonical": "ct3"
+              },
+              "size": null,
+              "stride": 128
+            }
+          }
+        }
+      ],
+      "local_to_canonical": {
+        "st0": "ct4",
+        "st1": "ct5",
+        "st2": "ct6",
+        "st3": "ct7",
+        "t0": "ct0",
+        "t1": "ct1",
+        "t2": "ct2",
+        "t3": "ct3"
+      },
+      "pipelines": {
+        "layout": {
+          "bind_group_layouts": [
+            {
+              "group": 0,
+              "entries": [
+                {
+                  "binding": 0,
+                  "name": "camera",
+                  "visibility": [
+                    "Vertex"
+                  ],
+                  "ty": {
+                    "Buffer": {
+                      "buffer_type": "Uniform",
+                      "has_dynamic_offset": false,
+                      "min_binding_size": 256,
+                      "ty": "ct2"
+                    }
+                  },
+                  "address_space": "Uniform",
+                  "access": "Read",
+                  "resource_type": {
+                    "Canonical": "ct2"
+                  },
+                  "count": null
+                }
+              ]
+            },
+            {
+              "group": 1,
+              "entries": [
+                {
+                  "binding": 0,
+                  "name": "instances",
+                  "visibility": [
+                    "Vertex"
+                  ],
+                  "ty": {
+                    "Buffer": {
+                      "buffer_type": {
+                        "Storage": {
+                          "read_only": "Load"
+                        }
+                      },
+                      "has_dynamic_offset": false,
+                      "min_binding_size": 128,
+                      "ty": "t4"
+                    }
+                  },
+                  "address_space": "Storage",
+                  "access": "Read",
+                  "resource_type": {
+                    "Local": {
+                      "module_id": "package::triangle",
+                      "type_id": "t4"
+                    }
+                  },
+                  "count": null
+                }
+              ]
+            }
+          ],
+          "push_constant_ranges": []
+        },
+        "vertex": {
+          "entry_point": "vs_main",
+          "compilation_options": {
+            "constants": {},
+            "zero_initialize_workgroup_memory": false
+          },
+          "inputs": [
+            {
+              "name": "input",
+              "ty": "ct0"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "position",
+              "ty": "ct5",
+              "builtin": "position"
+            },
+            {
+              "name": "color",
+              "ty": "ct5",
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ],
+          "buffers": [
+            {
+              "array_stride": 32,
+              "step_mode": "Vertex",
+              "attributes": [
+                {
+                  "name": "position",
+                  "shader_location": 0,
+                  "ty": "ct4",
+                  "format": "Float32x3",
+                  "offset": 0
+                },
+                {
+                  "name": "color",
+                  "shader_location": 1,
+                  "ty": "ct5",
+                  "format": "Float32x4",
+                  "offset": 16
+                }
+              ]
+            }
+          ]
+        },
+        "fragment": {
+          "entry_point": "fs_main",
+          "compilation_options": {
+            "constants": {},
+            "zero_initialize_workgroup_memory": false
+          },
+          "inputs": [
+            {
+              "name": "position",
+              "ty": "ct5",
+              "builtin": "position"
+            },
+            {
+              "name": "color",
+              "ty": "ct5",
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "output",
+              "ty": "ct5",
+              "location": 0,
+              "interpolation": "Perspective",
+              "sampling": "Center"
+            }
+          ]
+        },
+        "compute": null
+      },
+      "bindgroups": []
+    }
+  ]
+}

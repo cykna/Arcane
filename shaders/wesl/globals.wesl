@@ -4,7 +4,7 @@ struct Camera {
     view_projection: mat4x4<f32>,
     inverse_view_projection: mat4x4<f32>,
 }
-struct Mesh {
+struct MeshData {
     model: mat4x4<f32>,
     normal_matrix: mat4x4<f32>,
 }
