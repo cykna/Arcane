@@ -1,61 +1,43 @@
 // Generated from anygpu JSON. Do not edit by hand.
 const shared = @import("shared.zig");
-pub const VertexInput = extern struct {
-    _alignment: [0]u8 align(16),
-    position: shared.WgslVec3f32 align(16),
-    _padding_0: [4]u8,
-    color: shared.WgslVec4f32 align(16),
-
-    pub fn init(position: shared.WgslVec3f32, color: shared.WgslVec4f32) @This() {
-        return .{
-            ._alignment = .{},
-            .position = position,
-            ._padding_0 = .{ 0, 0, 0, 0 },
-            .color = color,
-        };
-    }
-};
-pub const VertexOutput = extern struct {
-    _alignment: [0]u8 align(16),
-    position: shared.WgslVec4f32 align(16),
-    color: shared.WgslVec4f32 align(16),
-
-    pub fn init(position: shared.WgslVec4f32, color: shared.WgslVec4f32) @This() {
-        return .{
-            ._alignment = .{},
-            .position = position,
-            .color = color,
-        };
-    }
-};
-pub const package_camera_Camera = extern struct {
-    _alignment: [0]u8 align(16),
-    view: shared.WgslMat4x4f32 align(16),
-    projection: shared.WgslMat4x4f32 align(16),
-    view_projection: shared.WgslMat4x4f32 align(16),
-    inverse_view_projection: shared.WgslMat4x4f32 align(16),
-
-    pub fn init(view: shared.WgslMat4x4f32, projection: shared.WgslMat4x4f32, view_projection: shared.WgslMat4x4f32, inverse_view_projection: shared.WgslMat4x4f32) @This() {
-        return .{
-            ._alignment = .{},
-            .view = view,
-            .projection = projection,
-            .view_projection = view_projection,
-            .inverse_view_projection = inverse_view_projection,
-        };
-    }
+const canonical = @import("types.zig");
+pub const Type_8 = extern struct {
+    _alignment: [0]u8 align(16) = .{},
+    items: [0]canonical.MeshData,
 };
 
+pub const array_package_globals_MeshData_ = Type_8;
+pub const package_triangle_VertexInput = canonical.VertexInput;
+pub const VertexInput = canonical.VertexInput;
+pub const package_triangle_VertexOutput = canonical.VertexOutput;
+pub const VertexOutput = canonical.VertexOutput;
+pub const package_globals_Camera = canonical.Camera;
+pub const Camera = canonical.Camera;
+pub const package_globals_MeshData = canonical.MeshData;
+pub const MeshData = canonical.MeshData;
 
 pub const type_layouts = [_]shared.WgslTypeLayout{
-    .{ .id = "t0", .name = "VertexInput", .size = 32, .alignment = 16, .array_stride = null, .array_length = null },
-    .{ .id = "t1", .name = "VertexOutput", .size = 32, .alignment = 16, .array_stride = null, .array_length = null },
-    .{ .id = "t2", .name = "package_camera_Camera", .size = 256, .alignment = 16, .array_stride = null, .array_length = null },
+    .{ .id = "t4", .name = "array<package_globals_MeshData>", .size = null, .alignment = 16, .array_stride = 128, .array_length = null },
 };
 
 pub const bindings = [_]shared.Binding{
-    .{ .group = 0, .binding = 0, .name = "camera", .kind = .buffer, .visibility = &.{}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null },
+    .{ .group = 0, .binding = 0, .name = "camera", .kind = .buffer, .address_space = .uniform, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 256, .ty = canonical.Camera },
+    .{ .group = 1, .binding = 0, .name = "instances", .kind = .buffer, .address_space = .storage, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .storage, .read_only = .load, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 128, .ty = canonical.MeshData },
 };
+
+pub const group_indices = [_]u32{0, 1};
+
+pub const group_bindings = [_][]const shared.Binding{
+    bindings[0..1],
+    bindings[1..2],
+};
+
+pub fn bindingsOfGroup(comptime group: u32) []const shared.Binding {
+    inline for (group_indices, 0..) |candidate, index| {
+        if (group == candidate) return group_bindings[index];
+    }
+    @compileError("unknown bind group");
+}
 
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
@@ -73,17 +55,17 @@ pub const vertex_inputs = [_]VertexStreamInput{
 
 pub const Pipeline = struct {
     pub const present = true;
-    pub const bind_group_count = 1;
-    pub const bind_group_indices = [_]u32{0};
-    pub const vertex_entry_point: ?[]const u8 = "vs_main";
+    pub const bind_group_count = 2;
+    pub const bind_group_indices = [_]u32{0, 1};
+    pub const vertex_entry_point: ?[:0]const u8 = "vs_main";
     pub const vertex_constants = [_]shared.PipelineConstant{
     };
     pub const vertex_zero_initialize_workgroup_memory = false;
-    pub const fragment_entry_point: ?[]const u8 = "fs_main";
+    pub const fragment_entry_point: ?[:0]const u8 = "fs_main";
     pub const fragment_constants = [_]shared.PipelineConstant{
     };
     pub const fragment_zero_initialize_workgroup_memory = false;
-    pub const compute_entry_point: ?[]const u8 = null;
+    pub const compute_entry_point: ?[:0]const u8 = null;
     pub const compute_constants = [_]shared.PipelineConstant{
     };
     pub const compute_zero_initialize_workgroup_memory = false;
@@ -99,6 +81,7 @@ pub const Pipeline = struct {
     pub const CreateOptions = struct {
         color_format: wgpu.TextureFormat = zgpu.GraphicsContext.swapchain_format,
         primitive: wgpu.PrimitiveState = .{},
+        layout: zgpu.PipelineLayoutHandle = .{},
     };
 
     pub fn create(gctx: *zgpu.GraphicsContext, source: [:0]const u8) zgpu.RenderPipelineHandle {
@@ -121,6 +104,15 @@ pub const Pipeline = struct {
         return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{});
     }
 
+    pub fn createWithVertexLayoutsAndLayout(
+        gctx: *zgpu.GraphicsContext,
+        source: [:0]const u8,
+        layouts: []const wgpu.VertexBufferLayout,
+        layout: zgpu.PipelineLayoutHandle,
+    ) zgpu.RenderPipelineHandle {
+        return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{ .layout = layout });
+    }
+
     pub fn createWithVertexLayoutsAndOptions(
         gctx: *zgpu.GraphicsContext,
         source: [:0]const u8,
@@ -134,7 +126,7 @@ pub const Pipeline = struct {
         }};
         const fragment = wgpu.FragmentState{
             .module = shader,
-            .entry_point = "fs_main",
+            .entry_point = fragment_entry_point.?,
             .target_count = color_targets.len,
             .targets = &color_targets,
         };
@@ -142,14 +134,14 @@ pub const Pipeline = struct {
             .layout = null,
             .vertex = .{
                 .module = shader,
-                .entry_point = "vs_main",
+                .entry_point = vertex_entry_point.?,
                 .buffer_count = layouts.len,
                 .buffers = if (layouts.len == 0) null else layouts.ptr,
             },
             .primitive = options.primitive,
             .fragment = &fragment,
         };
-        return gctx.createRenderPipeline(.{}, descriptor);
+        return gctx.createRenderPipeline(options.layout, descriptor);
     }
 
     pub fn bind(
@@ -169,10 +161,9 @@ pub const Pipeline = struct {
 comptime {
     _ = bindings;
     _ = Pipeline;
-    if (@sizeOf(VertexInput) != 32) @compileError("anygpu layout mismatch: generated type size does not match the schema");
-    if (@alignOf(VertexInput) != 16) @compileError("anygpu layout mismatch: generated type alignment does not match the schema");
-    if (@sizeOf(VertexOutput) != 32) @compileError("anygpu layout mismatch: generated type size does not match the schema");
-    if (@alignOf(VertexOutput) != 16) @compileError("anygpu layout mismatch: generated type alignment does not match the schema");
-    if (@sizeOf(package_camera_Camera) != 256) @compileError("anygpu layout mismatch: generated type size does not match the schema");
-    if (@alignOf(package_camera_Camera) != 16) @compileError("anygpu layout mismatch: generated type alignment does not match the schema");
+    if (@alignOf(Type_8) != 16) @compileError("anygpu layout mismatch: generated type alignment does not match the schema");
+    for (bindings) |binding| {
+        const minimum = binding.min_binding_size orelse continue;
+        if ((minimum == 32) or (minimum == 32) or (minimum == 256) or (minimum == 128) or (minimum == 12) or (minimum == 16) or (minimum == 64) or (minimum == 4) or (minimum == 128)) {} else @compileError("anygpu binding min_binding_size does not match any reflected type size or runtime array stride");
+    }
 }

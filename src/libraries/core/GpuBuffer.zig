@@ -36,13 +36,63 @@ pub const CreateDescriptor = struct {
     step_mode: wgpu.VertexStepMode = .vertex,
     index_format: ?wgpu.IndexFormat = null,
 };
+
+pub fn BufferBinding(comptime T: type) type {
+    return struct {
+        buffer: GpuBuffer(T),
+        group: zgpu.BindGroupHandle,
+        index: u32,
+        const Self = @This();
+        const CreateBindingOptions = struct {
+            buffer: GpuBuffer(T),
+            context: *zgpu.GraphicsContext,
+            pipeline: zgpu.RenderPipelineHandle,
+            allocator: std.mem.Allocator,
+            group_index: u32 = 0,
+            binding_index: u32 = 0,
+        };
+        pub fn init(options: CreateBindingOptions) Self {
+            const layout = options.context.createBindGroupLayoutAuto(options.pipeline, options.group_index);
+            defer options.context.releaseResource(layout);
+
+            const bind_group = options.context.createBindGroup(layout, &.{
+                .{
+                    .binding = options.binding_index,
+                    .buffer_handle = options.buffer.buffer_handle,
+                    .offset = 0,
+                    .size = @sizeOf(T),
+                },
+            });
+            return Self{ .buffer = options.buffer, .group = bind_group, .index = options.group_index };
+        }
+
+        /// Binds this camera's group to the active render pass.
+        pub fn bind(self: *const Self, gctx: *zgpu.GraphicsContext, pass: wgpu.RenderPassEncoder) !void {
+            const group = gctx.lookupResource(self.group) orelse return error.CameraBindGroupNotFound;
+            pass.setBindGroup(self.index, group, null);
+        }
+        /// Uploads matrices after the camera pose or projection has changed.
+        pub fn update(self: *Self, gctx: *zgpu.GraphicsContext, index: usize, data: T) !void {
+            try self.buffer.set(index, data);
+            try self.buffer.flush(gctx);
+        }
+
+        /// Releases this camera's bind group and uniform buffer.
+        pub fn deinit(self: *Self, gctx: *zgpu.GraphicsContext) void {
+            gctx.releaseResource(self.group);
+            self.buffer.deinit(gctx);
+            self.* = undefined;
+        }
+    };
+}
+
 /// Creates a fixed-capacity GPU buffer whose elements have the compile-time type `T`.
 ///
 /// The CPU mirror stores complete `T` values, so `T` should match the intended
 /// GPU representation. For WGSL vertex inputs, prefer `VertexStreams` to map
 /// one typed buffer per shader attribute.
 pub fn GpuBuffer(comptime T: type) type {
-    if (@sizeOf(T) == 0) @compileError("GpuBuffer element types must have a non-zero size");
+    if (@sizeOf(T) == 0) @compileError(std.fmt.comptimePrint("GpuBuffer element types must have a non-zero size. Instead, {any} doesn't", .{@typeName(T)}));
 
     return struct {
         buffer_handle: zgpu.BufferHandle,

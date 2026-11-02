@@ -1,3 +1,4 @@
+const sharedGpu = @import("../../../shaders/shared.zig");
 const std = @import("std");
 const Transform = @import("../../math/Transform.zig");
 const zmath = @import("zmath");
@@ -38,12 +39,7 @@ pub const GpuCamera = struct {
     };
 
     /// Host-shareable representation of the WGSL camera uniform block.
-    pub const CameraUniform = extern struct {
-        view: GpuMat4 align(16),
-        projection: GpuMat4 align(16),
-        view_projection: GpuMat4 align(16),
-        inverse_view_projection: GpuMat4 align(16),
-    };
+    pub const CameraUniform = @import("../../../shaders/triangle.zig").package_globals_Camera;
 
     /// One WGSL `mat4x4<f32>` stored as four 16-byte columns.
     pub const GpuMat4 = extern struct {
@@ -102,63 +98,47 @@ pub const GpuCamera = struct {
     ///
     /// Multiple instances can share a `BindingLayout`, while retaining separate
     /// camera matrices and GPU resources.
-    pub const GpuBinding = struct {
-        uniform_buffer: gpu_buffer.GpuBuffer(CameraUniform),
-        bind_group: zgpu.BindGroupHandle,
-        group_index: u32,
+    ///
+    pub const GpuBinding = gpu_buffer.BufferBinding(CameraUniform);
+    // pub const GpuBinding = struct {
+    //     uniform_buffer: gpu_buffer.GpuBuffer(CameraUniform),
+    //     bind_group: zgpu.BindGroupHandle,
+    //     group_index: u32,
 
-        /// Allocates and initializes the camera uniform buffer and bind group.
-        pub fn create(
-            gctx: *zgpu.GraphicsContext,
-            allocator: std.mem.Allocator,
-            layout: *BindingLayout,
-            camera: GpuCamera,
-        ) !GpuBinding {
-            var uniform_buffer = try gpu_buffer.GpuBuffer(CameraUniform).allocate(.{
-                .allocator = allocator,
-                .context = gctx,
-                .capacity = 1,
-                .roles = .{ .uniform = true },
-            });
-            errdefer uniform_buffer.deinit(gctx);
+    //     /// Allocates and initializes the camera uniform buffer and bind group.
+    //     pub fn create(
+    //         gctx: *zgpu.GraphicsContext,
+    //         allocator: std.mem.Allocator,
+    //         layout: *BindingLayout,
+    //         camera: GpuCamera,
+    //     ) !GpuBinding {
+    //         var uniform_buffer = try gpu_buffer.GpuBuffer(CameraUniform).allocate(.{
+    //             .allocator = allocator,
+    //             .context = gctx,
+    //             .capacity = 1,
+    //             .roles = .{ .uniform = true },
+    //         });
+    //         errdefer uniform_buffer.deinit(gctx);
 
-            try uniform_buffer.append(camera.matrices().uniformData());
-            try uniform_buffer.flush(gctx);
+    //         try uniform_buffer.append(camera.matrices().uniformData());
+    //         try uniform_buffer.flush(gctx);
 
-            const bind_group = gctx.createBindGroup(layout.handle, &.{
-                .{
-                    .binding = layout.binding_index,
-                    .buffer_handle = uniform_buffer.buffer_handle,
-                    .offset = 0,
-                    .size = @sizeOf(CameraUniform),
-                },
-            });
-            return .{
-                .uniform_buffer = uniform_buffer,
-                .bind_group = bind_group,
-                .group_index = layout.group_index,
-            };
-        }
+    //         const bind_group = gctx.createBindGroup(layout.handle, &.{
+    //             .{
+    //                 .binding = layout.binding_index,
+    //                 .buffer_handle = uniform_buffer.buffer_handle,
+    //                 .offset = 0,
+    //                 .size = @sizeOf(CameraUniform),
+    //             },
+    //         });
+    //         return .{
+    //             .uniform_buffer = uniform_buffer,
+    //             .bind_group = bind_group,
+    //             .group_index = layout.group_index,
+    //         };
+    //     }
 
-        /// Uploads matrices after the camera pose or projection has changed.
-        pub fn update(self: *GpuBinding, gctx: *zgpu.GraphicsContext, camera: *GpuCamera) !void {
-            try self.uniform_buffer.set(0, camera.matrices().uniformData());
-            try self.uniform_buffer.flush(gctx);
-        }
-
-        /// Binds this camera's group to the active render pass.
-        pub fn bind(self: *const GpuBinding, gctx: *zgpu.GraphicsContext, pass: wgpu.RenderPassEncoder) !void {
-            const group = gctx.lookupResource(self.bind_group) orelse return error.CameraBindGroupNotFound;
-            pass.setBindGroup(self.group_index, group, null);
-        }
-
-        /// Releases this camera's bind group and uniform buffer.
-        pub fn deinit(self: *GpuBinding, gctx: *zgpu.GraphicsContext) void {
-            gctx.releaseResource(self.bind_group);
-            self.uniform_buffer.deinit(gctx);
-            self.* = undefined;
-        }
-    };
+    // };
 
     /// Creates a right-handed perspective camera looking toward `target`.
     pub fn init(options: CreateOptions) !GpuCamera {
@@ -229,15 +209,10 @@ pub const GpuCamera = struct {
     }
 };
 
-fn gpuMat4(matrix: zmath.Mat) GpuCamera.GpuMat4 {
-    var result: GpuCamera.GpuMat4 = undefined;
+fn gpuMat4(matrix: zmath.Mat) sharedGpu.WgslMat4x4f32 {
+    var result: sharedGpu.WgslMat4x4f32 = undefined;
     for (matrix, 0..) |column, index| {
-        result.columns[index] = .{
-            .x = column[0],
-            .y = column[1],
-            .z = column[2],
-            .w = column[3],
-        };
+        result.columns[index] = sharedGpu.WgslMat4x4f32Column{ .value = .{ .w = column[3], .z = column[2], .y = column[1], .x = column[0] } };
     }
     return result;
 }
@@ -291,17 +266,17 @@ test "camera builds right-handed view projection and WGSL uniform data" {
     try std.testing.expectEqual(@as(usize, 64), @offsetOf(GpuCamera.CameraUniform, "projection"));
     try std.testing.expectEqual(@as(usize, 128), @offsetOf(GpuCamera.CameraUniform, "view_projection"));
     try std.testing.expectEqual(@as(usize, 192), @offsetOf(GpuCamera.CameraUniform, "inverse_view_projection"));
-    try std.testing.expectEqual(matrices.view_projection[0][0], uniform.view_projection.columns[0].x);
-    try std.testing.expectEqual(matrices.view_projection[0][1], uniform.view_projection.columns[0].y);
+    try std.testing.expectEqual(matrices.view_projection[0][0], uniform.view_projection.columns[0].value.x);
+    try std.testing.expectEqual(matrices.view_projection[0][1], uniform.view_projection.columns[0].value.y);
 
     const world = zmath.f32x4(0.25, -0.5, 0, 1);
     const expected = zmath.mul(world, matrices.view_projection);
     const columns = uniform.view_projection.columns;
     const shader_result = [4]f32{
-        columns[0].x * world[0] + columns[1].x * world[1] + columns[2].x * world[2] + columns[3].x * world[3],
-        columns[0].y * world[0] + columns[1].y * world[1] + columns[2].y * world[2] + columns[3].y * world[3],
-        columns[0].z * world[0] + columns[1].z * world[1] + columns[2].z * world[2] + columns[3].z * world[3],
-        columns[0].w * world[0] + columns[1].w * world[1] + columns[2].w * world[2] + columns[3].w * world[3],
+        columns[0].value.x * world[0] + columns[1].value.x * world[1] + columns[2].value.x * world[2] + columns[3].value.x * world[3],
+        columns[0].value.y * world[0] + columns[1].value.y * world[1] + columns[2].value.y * world[2] + columns[3].value.y * world[3],
+        columns[0].value.z * world[0] + columns[1].value.z * world[1] + columns[2].value.z * world[2] + columns[3].value.z * world[3],
+        columns[0].value.w * world[0] + columns[1].value.w * world[1] + columns[2].value.w * world[2] + columns[3].value.w * world[3],
     };
     inline for (0..4) |index| {
         try std.testing.expectApproxEqAbs(expected[index], shader_result[index], 0.0001);

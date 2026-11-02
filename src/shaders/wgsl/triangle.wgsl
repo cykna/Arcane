@@ -13,13 +13,16 @@ struct VertexOutput {
 }
 
 @binding(0) @group(0)
-var<uniform> camera: package_camera_Camera;
+var<uniform> camera: package_globals_Camera;
+
+@binding(0) @group(1)
+var<storage, read> instances: array<package_globals_MeshData>;
 
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
+fn vs_main(input: VertexInput, @builtin(instance_index) index: u32) -> VertexOutput {
     var out: VertexOutput;
     let world_position = vec4(input.position, 1.0);
-    out.position = camera.view_projection * world_position;
+    out.position = camera.view_projection * instances[index].model * world_position;
     out.color = input.color;
     return out;
 }
@@ -29,10 +32,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     return in.color;
 }
 
-struct package_camera_Camera {
+struct package_globals_Camera {
     view: mat4x4<f32>,
     projection: mat4x4<f32>,
     view_projection: mat4x4<f32>,
     inverse_view_projection: mat4x4<f32>
+}
+
+struct package_globals_MeshData {
+    model: mat4x4<f32>,
+    normal_matrix: mat4x4<f32>
 }
 

@@ -1,3 +1,4 @@
+const Buffers = @import("../../core/GpuBuffer.zig");
 const World = @import("../../ecs/World.zig").World;
 const zmath = @import("zmath");
 const std = @import("std");
@@ -29,7 +30,23 @@ pub const PerspectiveCamera = struct {
         };
         var layout = Camera.BindingLayout.create(options.context, options.pipeline, options.group_index, options.binding_index);
         defer layout.deinit(options.context);
-        const binding = try Camera.GpuBinding.create(options.context, options.allocator, &layout, camera);
+        var buffer = try Buffers.GpuBuffer(Camera.CameraUniform).allocate(.{
+            .allocator = options.allocator,
+            .context = options.context,
+            .capacity = 1,
+            .roles = .{ .uniform = true },
+        });
+        const data = camera.matrices().uniformData();
+        try buffer.append(data);
+        try buffer.flush(options.context);
+        const binding = Buffers.BufferBinding(Camera.CameraUniform).init(.{
+            .allocator = options.allocator,
+            .context = options.context,
+            .pipeline = options.pipeline,
+            .buffer = buffer,
+            .binding_index = options.binding_index,
+            .group_index = options.group_index,
+        });
 
         return Self{ .transform = options.transform, .camera = camera, .binding = binding };
     }
@@ -49,8 +66,8 @@ pub const PerspectiveCamera = struct {
 
     /// Binds this camera's group to the active render pass.
     pub fn bind(self: *const Self, ctx: *zgpu.GraphicsContext, pass: zgpu.wgpu.RenderPassEncoder) !void {
-        const group = ctx.lookupResource(self.binding.bind_group) orelse return error.CameraBindGroupNotFound;
-        pass.setBindGroup(self.binding.group_index, group, null);
+        const group = ctx.lookupResource(self.binding.group) orelse return error.CameraBindGroupNotFound;
+        pass.setBindGroup(self.binding.index, group, null);
     }
 
     /// Direção para onde a câmera olha (-Z local).
@@ -84,9 +101,13 @@ pub const PerspectiveCamera = struct {
         return out;
     }
 
+    pub fn getUniform(self: World.QueryCursor(Self)) void {
+        return self.get(.camera).matrices().uniformData();
+    }
+
     pub fn update(self: World.QueryCursor(Self), ctx: *zgpu.GraphicsContext) !void {
         zmath.storeArr3(&self.get(.camera).position, self.get(.transform).position);
         self.get(.camera).rotation = self.get(.transform).rotation;
-        try self.get(.binding).update(ctx, self.get(.camera));
+        try self.get(.binding).update(ctx, 0, self.get(.camera).matrices().uniformData());
     }
 };

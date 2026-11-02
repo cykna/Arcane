@@ -1,3 +1,4 @@
+const Rendering = @import("./RenderingState.zig");
 const zmath = @import("zmath");
 const glfw = @import("zglfw");
 const zgpu = @import("zgpu");
@@ -57,50 +58,16 @@ pub const Window = struct {
         self.context.swapchain = self.context.device.createSwapChain(self.context.surface, self.context.swapchain_descriptor);
         old.release();
     }
-    /// Per-frame swapchain image and command encoder returned by `startProcessing`.
-    pub const ArcaneWindowProcessingState = struct {
-        width: f32,
-        height: f32,
-        resize: bool,
-        encoder: zgpu.wgpu.CommandEncoder,
-        view: zgpu.wgpu.TextureView,
-        /// Begins a render pass that clears the current swapchain image.
-        pub fn startRenderization(self: *const ArcaneWindowProcessingState, background: zmath.F32x4) zgpu.wgpu.RenderPassEncoder {
-            const attachments = [_]zgpu.wgpu.RenderPassColorAttachment{.{
-                .load_op = .clear,
-                .store_op = .store,
-                .clear_value = .{
-                    .r = background[0],
-                    .g = background[1],
-                    .b = background[2],
-                    .a = background[3],
-                },
-                .view = self.view,
-            }};
-            const pass = self.encoder.beginRenderPass(.{ .color_attachments = &attachments, .color_attachment_count = attachments.len });
-            if (self.resize) {
-                std.debug.print("Setting viewport to 0x0 by {}x{} by 0x1\n", .{ self.width, self.height });
-                pass.setViewport(0.0, 0.0, self.width, self.height, 0.0, 1.0);
-            }
-            return pass;
-        }
-
-        /// Releases the command encoder and current swapchain texture view.
-        pub fn destroy(self: *const ArcaneWindowProcessingState) void {
-            self.encoder.release();
-            self.view.release();
-        }
-    };
 
     /// Acquires the current swapchain image and creates a command encoder.
-    pub fn startProcessing(self: *Self) ArcaneWindowProcessingState {
+    pub fn startProcessing(self: *Self) Rendering.ArcaneWindowProcessingState(Rendering.Empty) {
         const resize = self.resize;
         if (self.resize) {
             self.resizeSwapchain();
         }
         const encoder = self.context.device.createCommandEncoder(.{});
         const back_buffer_view = self.context.swapchain.getCurrentTextureView();
-        return ArcaneWindowProcessingState{
+        return Rendering.ArcaneWindowProcessingState(Rendering.Empty){
             .encoder = encoder,
             .view = back_buffer_view,
             .resize = resize,
@@ -110,14 +77,12 @@ pub const Window = struct {
     }
 
     /// Submits commands recorded during this frame and presents the image.
-    pub fn finishProcessing(self: *Self, state: ArcaneWindowProcessingState) void {
+    pub fn finishProcessing(self: *Self, state: Rendering.ArcaneWindowProcessingState(Rendering.Empty)) void {
         defer state.destroy();
         const cmd_buffer = state.encoder.finish(.{});
         self.context.submit(&.{cmd_buffer});
         _ = self.context.present();
-        if (self.resize) {
-            self.resize = false;
-        }
+        if (self.resize) self.resize = false;
     }
 
     /// Reports whether GLFW has requested that the window close.

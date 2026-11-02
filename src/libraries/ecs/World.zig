@@ -1,24 +1,8 @@
 const std = @import("std");
-
-pub const TypeId = *const struct { _: u8 };
-pub const OpaqueEntityId = struct { id: TypeId, index: usize };
-pub fn EntityId(comptime T: type) type {
-    return struct {
-        index: usize,
-        pub fn toOpaque(self: *const @This()) OpaqueEntityId {
-            return OpaqueEntityId{ .id = typeId(T), .index = self.index };
-        }
-    };
-}
-
-pub inline fn typeId(comptime T: type) TypeId {
-    return &struct {
-        comptime {
-            _ = T;
-        }
-        var id: @typeInfo(TypeId).pointer.child = undefined;
-    }.id;
-}
+const arcaneecs = @import("./Main.zig");
+const TypeId = arcaneecs.TypeId;
+const typeId = arcaneecs.typeId;
+const EntityId = arcaneecs.EntityId;
 
 pub const World = struct {
     const PhantomMultiArrayList = struct {
@@ -43,6 +27,12 @@ pub const World = struct {
         return Self{
             .allocator = allocator,
         };
+    }
+
+    pub fn destroyGlobal(self: *Self, comptime T: type) void {
+        if (self.globals.get(typeId(T))) |global| {
+            global.destroy(global.ptr, self.allocator);
+        }
     }
 
     pub fn insertGlobal(self: *Self, value: anytype) !void {
