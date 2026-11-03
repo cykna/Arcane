@@ -18,8 +18,24 @@ pub const type_layouts = [_]shared.WgslTypeLayout{
 };
 
 pub const bindings = [_]shared.Binding{
-    .{ .group = 0, .binding = 0, .name = "data", .kind = .buffer, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = false, .compute = true}, .count = null, .resource_type = .storage, .read_only = .load_store, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 16, .ty = null },
+    .{ .group = 0, .binding = 0, .name = "data", .slot_name = "data", .kind = .buffer, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = false, .compute = true}, .count = null, .resource_type = .storage, .read_only = .load_store, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 16, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
 };
+
+pub const BindingMetadata = shared.Binding;
+
+pub const MaterialGroup = enum(u32) {
+    group0 = 0,
+};
+
+pub const MaterialSlots = struct {
+    pub const group0 = enum(u32) {
+        data = 0,
+    };
+};
+
+pub fn materialBindGroupLayoutEntry(binding: shared.Binding) wgpu.BindGroupLayoutEntry {
+    return shared.toBindGroupLayoutEntry(binding, null);
+}
 
 pub const group_indices = [_]u32{0};
 

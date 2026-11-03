@@ -6,11 +6,33 @@ pub const type_layouts = [_]shared.WgslTypeLayout{
 };
 
 pub const bindings = [_]shared.Binding{
-    .{ .group = 0, .binding = 0, .name = "color_texture", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .float, .filterable = true, .view_dimension = .d2, .multisampled = false, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
-    .{ .group = 3, .binding = 0, .name = "color_sampler", .kind = .sampler, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = .filtering, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
-    .{ .group = 3, .binding = 1, .name = "target", .kind = .storage_texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = .d2, .multisampled = null, .storage_access = .write_only, .format = "Rgba8Unorm", .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
-    .{ .group = 3, .binding = 2, .name = "history", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = true, .fragment = true, .compute = false}, .count = 4, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .depth, .filterable = null, .view_dimension = .d2_array, .multisampled = true, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+    .{ .group = 0, .binding = 0, .name = "color_texture", .slot_name = "color_texture", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .float, .filterable = true, .view_dimension = .d2, .multisampled = false, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
+    .{ .group = 3, .binding = 0, .name = "color_sampler", .slot_name = "color_sampler", .kind = .sampler, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = .filtering, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
+    .{ .group = 3, .binding = 1, .name = "target", .slot_name = "target", .kind = .storage_texture, .address_space = null, .access = null, .visibility = .{ .vertex = false, .fragment = true, .compute = false}, .count = null, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = .d2, .multisampled = null, .storage_access = .write_only, .format = "Rgba8Unorm", .has_dynamic_offset = false, .min_binding_size = null, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
+    .{ .group = 3, .binding = 2, .name = "history", .slot_name = "history", .kind = .texture, .address_space = null, .access = null, .visibility = .{ .vertex = true, .fragment = true, .compute = false}, .count = 4, .resource_type = null, .read_only = null, .sampler_type = null, .sample_type = .depth, .filterable = null, .view_dimension = .d2_array, .multisampled = true, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
 };
+
+pub const BindingMetadata = shared.Binding;
+
+pub const MaterialGroup = enum(u32) {
+    group0 = 0,
+    group3 = 3,
+};
+
+pub const MaterialSlots = struct {
+    pub const group0 = enum(u32) {
+        color_texture = 0,
+    };
+    pub const group3 = enum(u32) {
+        color_sampler = 0,
+        target = 1,
+        history = 2,
+    };
+};
+
+pub fn materialBindGroupLayoutEntry(binding: shared.Binding) wgpu.BindGroupLayoutEntry {
+    return shared.toBindGroupLayoutEntry(binding, null);
+}
 
 pub const group_indices = [_]u32{0, 3};
 

@@ -46,6 +46,9 @@ pub const BindingDetails = struct {
     has_dynamic_offset: bool = false,
     min_binding_size: ?u64 = null,
     ty: ?[]const u8 = null,
+    array_stride: ?u32 = null,
+    array_length: ?u32 = null,
+    runtime_sized_array: bool = false,
 };
 
 pub fn object(value: *const Value) !*const std.json.ObjectMap {

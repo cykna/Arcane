@@ -3,6 +3,7 @@ const schema_lib = @import("schema.zig");
 const common = @import("emit_common.zig");
 const layout_mod = @import("layout.zig");
 const types_emit = @import("emit_types.zig");
+const identifiers = @import("identifiers.zig");
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const Value = schema_lib.Value;
@@ -22,6 +23,7 @@ const writeStageMask = common.writeStageMask;
 const writeSnakeEnum = common.writeSnakeEnum;
 const writeOptionalEnum = common.writeOptionalEnum;
 const writeOptionalString = common.writeOptionalString;
+const zigIdentifier = identifiers.zigIdentifier;
 
 pub const GroupEntries = struct {
     group: u32,
@@ -40,6 +42,25 @@ pub fn collectGroups(schema_value: *const Value, allocator: Allocator) ![]GroupE
         if (entries.* != .array) return error.InvalidSchema;
         const entry_values = try allocator.alloc(*const Value, entries.array.items.len);
         for (entries.array.items, 0..) |*entry, entry_index| entry_values[entry_index] = entry;
+        std.mem.sort(*const Value, entry_values, {}, lessBindingNumber);
+        for (entry_values, 0..) |entry, entry_index| {
+            const binding_number = try number(try field(entry, "binding"));
+            const name = try string(try field(entry, "name"));
+            const slot_name = try zigIdentifier(allocator, name, binding_number);
+            for (entry_values[0..entry_index]) |previous| {
+                if (binding_number == try number(try field(previous, "binding"))) {
+                    std.debug.print("anygpu-ziggen: duplicate binding index {d} in group {d}\n", .{ binding_number, try number(try field(group_value, "group")) });
+                    return error.DuplicateBindingIndex;
+                }
+                const previous_name = try string(try field(previous, "name"));
+                const previous_binding = try number(try field(previous, "binding"));
+                const previous_slot = try zigIdentifier(allocator, previous_name, previous_binding);
+                if (std.mem.eql(u8, slot_name, previous_slot)) {
+                    std.debug.print("anygpu-ziggen: ambiguous Zig slot name `{s}` in group {d}\n", .{ slot_name, try number(try field(group_value, "group")) });
+                    return error.AmbiguousSlotName;
+                }
+            }
+        }
         result[index] = .{
             .group = try number(try field(group_value, "group")),
             .entries = entry_values,
@@ -56,6 +77,11 @@ pub fn collectGroups(schema_value: *const Value, allocator: Allocator) ![]GroupE
 
 fn lessGroup(_: void, lhs: GroupEntries, rhs: GroupEntries) bool {
     return lhs.group < rhs.group;
+}
+
+fn lessBindingNumber(_: void, lhs: *const Value, rhs: *const Value) bool {
+    return (schema_lib.number(schema_lib.field(lhs, "binding") catch unreachable) catch unreachable) <
+        (schema_lib.number(schema_lib.field(rhs, "binding") catch unreachable) catch unreachable);
 }
 
 pub fn emit(w: *Writer, schema_value: *const Value, model: *const Model, allocator: Allocator) !void {
@@ -154,7 +180,21 @@ fn writeBinding(w: *Writer, binding: *const Value, group: ?u32, model: *const Mo
     const name = try string(try field(binding, "name"));
     const visibility = try field(binding, "visibility");
     const count = try optionalU32(try field(binding, "count"));
-    const details = try bindingDetails(try field(binding, "ty"));
+    var details = try bindingDetails(try field(binding, "ty"));
+    if (details.ty) |type_id| {
+        const type_index = try findType(model, type_id);
+        const descriptor = try schema_lib.tagged(model.types[type_index].descriptor);
+        if (std.mem.eql(u8, descriptor.name, "Array")) {
+            details.array_stride = try number(try field(descriptor.payload, "stride"));
+            const array_size = try field(descriptor.payload, "size");
+            if (array_size.* == .null) {
+                details.runtime_sized_array = true;
+            } else {
+                details.array_length = try number(array_size);
+            }
+        }
+    }
+    const slot_name = try zigIdentifier(model.allocator, name, binding_number);
     const address_space = try optionalStringField(binding, "address_space");
     const access = try optionalStringField(binding, "access");
     try w.writeAll("    .{ .group = ");
@@ -165,6 +205,8 @@ fn writeBinding(w: *Writer, binding: *const Value, group: ?u32, model: *const Mo
     }
     try w.print(", .binding = {d}, .name = ", .{binding_number});
     try writeZigString(w, name);
+    try w.writeAll(", .slot_name = ");
+    try writeZigString(w, slot_name);
     try w.writeAll(", .kind = .");
     try writeSnakeEnum(w, details.kind);
     try w.writeAll(", .address_space = ");
@@ -199,6 +241,11 @@ fn writeBinding(w: *Writer, binding: *const Value, group: ?u32, model: *const Mo
     try writeOptionalString(w, details.format);
     try w.print(", .has_dynamic_offset = {}, .min_binding_size = ", .{details.has_dynamic_offset});
     if (details.min_binding_size) |minimum| try w.print("{d}", .{minimum}) else try w.writeAll("null");
+    try w.writeAll(", .array_stride = ");
+    if (details.array_stride) |stride| try w.print("{d}", .{stride}) else try w.writeAll("null");
+    try w.writeAll(", .array_length = ");
+    if (details.array_length) |length| try w.print("{d}", .{length}) else try w.writeAll("null");
+    try w.print(", .runtime_sized_array = {}", .{details.runtime_sized_array});
     try w.writeAll(", .ty = ");
     if (details.ty) |type_id| {
         const type_index = try findType(model, type_id);
@@ -253,7 +300,16 @@ fn writeBindings(w: *Writer, schema: *const Value, model: *const Model, allocato
             return err;
         };
     }
-    try w.writeAll("};\n\n");
+    try w.writeAll("};\n\npub const BindingMetadata = shared.Binding;\n\n");
+
+    try emitMaterialSelectors(w, groups, model);
+    try w.writeAll(
+        \\pub fn materialBindGroupLayoutEntry(binding: shared.Binding) wgpu.BindGroupLayoutEntry {
+        \\    return shared.toBindGroupLayoutEntry(binding, null);
+        \\}
+        \\
+        \\
+    );
 
     try w.writeAll("pub const group_indices = [_]u32{");
     for (groups, 0..) |group, index| {
@@ -279,4 +335,21 @@ fn writeBindings(w: *Writer, schema: *const Value, model: *const Model, allocato
         \\
         \\
     );
+}
+
+fn emitMaterialSelectors(w: *Writer, groups: []const GroupEntries, model: *const Model) !void {
+    try w.writeAll("pub const MaterialGroup = enum(u32) {\n");
+    for (groups) |group| try w.print("    group{d} = {d},\n", .{ group.group, group.group });
+    try w.writeAll("};\n\npub const MaterialSlots = struct {\n");
+    for (groups) |group| {
+        try w.print("    pub const group{d} = enum(u32) {{\n", .{group.group});
+        for (group.entries) |entry| {
+            const binding_number = try number(try field(entry, "binding"));
+            const name = try string(try field(entry, "name"));
+            const safe_name = try zigIdentifier(model.allocator, name, binding_number);
+            try w.print("        {s} = {d},\n", .{ safe_name, binding_number });
+        }
+        try w.writeAll("    };\n");
+    }
+    try w.writeAll("};\n\n");
 }

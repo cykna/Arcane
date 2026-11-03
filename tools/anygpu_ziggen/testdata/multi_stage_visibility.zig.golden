@@ -6,8 +6,24 @@ pub const type_layouts = [_]shared.WgslTypeLayout{
 };
 
 pub const bindings = [_]shared.Binding{
-    .{ .group = 0, .binding = 0, .name = "camera", .kind = .buffer, .address_space = null, .access = null, .visibility = .{ .vertex = true, .fragment = true, .compute = false}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .ty = null },
+    .{ .group = 0, .binding = 0, .name = "camera", .slot_name = "camera", .kind = .buffer, .address_space = null, .access = null, .visibility = .{ .vertex = true, .fragment = true, .compute = false}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = null, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = null },
 };
+
+pub const BindingMetadata = shared.Binding;
+
+pub const MaterialGroup = enum(u32) {
+    group0 = 0,
+};
+
+pub const MaterialSlots = struct {
+    pub const group0 = enum(u32) {
+        camera = 0,
+    };
+};
+
+pub fn materialBindGroupLayoutEntry(binding: shared.Binding) wgpu.BindGroupLayoutEntry {
+    return shared.toBindGroupLayoutEntry(binding, null);
+}
 
 pub const group_indices = [_]u32{0};
 

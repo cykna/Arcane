@@ -36,10 +36,11 @@ fn isKeyword(name: []const u8) bool {
 
 fn isGeneratedName(name: []const u8) bool {
     const reserved = [_][]const u8{
-        "Binding",           "BindingKind",          "BufferResourceType",   "StorageBufferAccess", "SamplerBindingType",
-        "TextureSampleType", "TextureViewDimension", "StorageTextureAccess", "ShaderStage",         "WgslTypeLayout",
-        "PushConstantRange", "Pipeline",             "bindings",             "bindgroups",          "type_layouts",
-        "group_indices",     "group_bindings",       "bindingsOfGroup",      "pipeline",            "shared",
+        "Binding",           "BindingKind",          "BufferResourceType",   "StorageBufferAccess",          "SamplerBindingType",
+        "TextureSampleType", "TextureViewDimension", "StorageTextureAccess", "ShaderStage",                  "WgslTypeLayout",
+        "PushConstantRange", "Pipeline",             "bindings",             "bindgroups",                   "type_layouts",
+        "group_indices",     "group_bindings",       "bindingsOfGroup",      "pipeline",                     "shared",
+        "BindingMetadata",   "MaterialGroup",        "MaterialSlots",        "materialBindGroupLayoutEntry",
     };
     for (reserved) |entry| if (std.mem.eql(u8, name, entry)) return true;
     return std.mem.startsWith(u8, name, "Type_");
