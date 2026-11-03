@@ -17,6 +17,7 @@ pub const Binding = struct {
     group: ?u32,
     binding: u32,
     name: []const u8,
+    slot_name: []const u8 = "",
     kind: BindingKind,
     address_space: ?ResourceAddressSpace,
     access: ?ResourceAccess,
@@ -36,6 +37,9 @@ pub const Binding = struct {
     /// array this is the size of one element (the schema's array stride), not
     /// the size of the whole buffer. `null` means the whole binding.
     min_binding_size: ?u64,
+    array_stride: ?u32 = null,
+    array_length: ?u32 = null,
+    runtime_sized_array: bool = false,
     ty: ?type = null,
 };
 

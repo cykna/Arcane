@@ -1,5 +1,4 @@
 const Buffers = @import("libraries/core/GpuBuffer.zig");
-const Material = @import("libraries/objects/Material.zig");
 const ArcaneEcs = @import("libraries/ecs/Main.zig");
 const World = ArcaneEcs.World;
 const Queries = ArcaneEcs.Queries;
@@ -113,11 +112,6 @@ pub fn main(_: std.process.Init) !void {
 
         var vertex_streams = try create_triangle(window);
         defer vertex_streams.deinit(window.context);
-        const material: Material.Material(triangle) = .{ .binds = .{
-            .group0 = .{ .camera = camera.binding },
-            .group1 = .{ .instances = binding },
-        } };
-
         const triangle_mesh = TriangleMesh.init(try vertex_streams.view());
         while (!window.shouldClose()) {
             glfw.pollEvents();
@@ -149,8 +143,8 @@ pub fn main(_: std.process.Init) !void {
             defer pass.end();
 
             try triangle.Pipeline.bind(window.context, pass, render_pipeline);
-            try material.bind(window.context, pass);
             try camera.bind(window.context, pass);
+            try binding.bind(window.context, pass, 1);
             try triangle_mesh.bind(window.context, pass);
             triangle_mesh.draw(pass);
         }

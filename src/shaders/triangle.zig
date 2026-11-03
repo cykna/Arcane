@@ -21,9 +21,29 @@ pub const type_layouts = [_]shared.WgslTypeLayout{
 };
 
 pub const bindings = [_]shared.Binding{
-    .{ .group = 0, .binding = 0, .name = "camera", .kind = .buffer, .address_space = .uniform, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 256, .ty = canonical.Camera },
-    .{ .group = 1, .binding = 0, .name = "instances", .kind = .buffer, .address_space = .storage, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .storage, .read_only = .load, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 128, .ty = canonical.MeshData },
+    .{ .group = 0, .binding = 0, .name = "camera", .slot_name = "camera", .kind = .buffer, .address_space = .uniform, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .uniform, .read_only = null, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 256, .array_stride = null, .array_length = null, .runtime_sized_array = false, .ty = canonical.Camera },
+    .{ .group = 1, .binding = 0, .name = "instances", .slot_name = "instances", .kind = .buffer, .address_space = .storage, .access = .read, .visibility = .{ .vertex = true, .fragment = false, .compute = false}, .count = null, .resource_type = .storage, .read_only = .load, .sampler_type = null, .sample_type = null, .filterable = null, .view_dimension = null, .multisampled = null, .storage_access = null, .format = null, .has_dynamic_offset = false, .min_binding_size = 128, .array_stride = 128, .array_length = null, .runtime_sized_array = true, .ty = canonical.MeshData },
 };
+
+pub const BindingMetadata = shared.Binding;
+
+pub const MaterialGroup = enum(u32) {
+    group0 = 0,
+    group1 = 1,
+};
+
+pub const MaterialSlots = struct {
+    pub const group0 = enum(u32) {
+        camera = 0,
+    };
+    pub const group1 = enum(u32) {
+        instances = 0,
+    };
+};
+
+pub fn materialBindGroupLayoutEntry(binding: shared.Binding) wgpu.BindGroupLayoutEntry {
+    return shared.toBindGroupLayoutEntry(binding, null);
+}
 
 pub const group_indices = [_]u32{0, 1};
 

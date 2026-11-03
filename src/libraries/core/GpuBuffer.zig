@@ -33,9 +33,47 @@ pub const CreateDescriptor = struct {
     allocator: std.mem.Allocator,
     context: *zgpu.GraphicsContext,
     roles: Roles,
+    element_stride: ?usize = null,
     step_mode: wgpu.VertexStepMode = .vertex,
     index_format: ?wgpu.IndexFormat = null,
 };
+
+pub const MaterialBufferRole = enum {
+    uniform,
+    storage_read_only,
+    storage_read_write,
+    storage_atomic,
+};
+
+pub fn rolesForMaterialBinding(role: MaterialBufferRole) Roles {
+    return switch (role) {
+        .uniform => .{ .uniform = true },
+        .storage_read_only, .storage_read_write, .storage_atomic => .{ .storage = true },
+    };
+}
+
+pub fn MaterialBufferBinding(
+    comptime T: type,
+    comptime Shader: type,
+    comptime group: u32,
+    comptime binding: u32,
+    comptime role: MaterialBufferRole,
+) type {
+    return struct {
+        buffer: GpuBuffer(T),
+        pub const shader_type = Shader;
+        pub const group_index = group;
+        pub const binding_index = binding;
+        pub const element_type = T;
+        pub const buffer_role = role;
+
+        const Self = @This();
+
+        pub fn deinit(self: *Self, context: *zgpu.GraphicsContext) void {
+            self.buffer.deinit(context);
+        }
+    };
+}
 
 pub fn BufferBinding(comptime T: type) type {
     return struct {
@@ -67,9 +105,9 @@ pub fn BufferBinding(comptime T: type) type {
         }
 
         /// Binds this camera's group to the active render pass.
-        pub fn bind(self: *const Self, gctx: *zgpu.GraphicsContext, pass: wgpu.RenderPassEncoder) !void {
+        pub fn bind(self: *const Self, gctx: *zgpu.GraphicsContext, pass: wgpu.RenderPassEncoder, index: usize) !void {
             const group = gctx.lookupResource(self.group) orelse return error.CameraBindGroupNotFound;
-            pass.setBindGroup(self.index, group, null);
+            pass.setBindGroup(@intCast(index), group, null);
         }
         /// Uploads matrices after the camera pose or projection has changed.
         pub fn update(self: *Self, gctx: *zgpu.GraphicsContext, index: usize, data: T) !void {
@@ -103,6 +141,7 @@ pub fn GpuBuffer(comptime T: type) type {
         index_format: ?wgpu.IndexFormat,
         step_mode: wgpu.VertexStepMode,
         allocation_size: usize,
+        element_stride: usize = @sizeOf(T),
         dirty_start: ?usize = null,
         dirty_end: usize = 0,
 
@@ -115,7 +154,9 @@ pub fn GpuBuffer(comptime T: type) type {
         /// or CPU allocation failure.
         pub fn allocate(descriptor: CreateDescriptor) !Self {
             try validateOptions(T, descriptor.roles, descriptor.index_format, descriptor.step_mode);
-            const size_result = @mulWithOverflow(descriptor.capacity, @sizeOf(T));
+            const element_stride = descriptor.element_stride orelse @sizeOf(T);
+            if (element_stride < @sizeOf(T)) return error.InvalidElementStride;
+            const size_result = @mulWithOverflow(descriptor.capacity, element_stride);
             if (size_result[1] != 0) return error.CapacityOverflow;
             const padded_result = @addWithOverflow(size_result[0], 3);
             if (padded_result[1] != 0) return error.CapacityOverflow;
@@ -138,6 +179,7 @@ pub fn GpuBuffer(comptime T: type) type {
                 .index_format = descriptor.index_format,
                 .step_mode = descriptor.step_mode,
                 .allocation_size = allocation_size,
+                .element_stride = element_stride,
             };
         }
 
@@ -239,7 +281,23 @@ pub fn GpuBuffer(comptime T: type) type {
             const copy_end = @min(aligned_end, logical_size);
             if (copy_end > aligned_start) {
                 const contents_bytes = std.mem.sliceAsBytes(self.contents.items);
-                @memcpy(upload[0 .. copy_end - aligned_start], contents_bytes[aligned_start..copy_end]);
+                if (self.element_stride == @sizeOf(T)) {
+                    @memcpy(upload[0 .. copy_end - aligned_start], contents_bytes[aligned_start..copy_end]);
+                } else {
+                    for (self.contents.items, 0..) |_, item_index| {
+                        const item_start = item_index * self.element_stride;
+                        const item_end = item_start + @sizeOf(T);
+                        const copy_start = @max(item_start, aligned_start);
+                        const copy_stop = @min(item_end, copy_end);
+                        if (copy_start >= copy_stop) continue;
+                        const upload_start = copy_start - aligned_start;
+                        const source_start = item_index * @sizeOf(T) + copy_start - item_start;
+                        @memcpy(
+                            upload[upload_start .. upload_start + copy_stop - copy_start],
+                            contents_bytes[source_start .. source_start + copy_stop - copy_start],
+                        );
+                    }
+                }
             }
             context.queue.writeBuffer(gpu_buffer, aligned_start, u8, upload);
             self.dirty_start = null;
@@ -290,9 +348,14 @@ pub fn GpuBuffer(comptime T: type) type {
             return self.capacity_items;
         }
 
-        /// Returns the logical byte size (`len() * @sizeOf(T)`), not capacity.
+        /// Returns the logical byte size (`len() * element_stride`), not capacity.
         pub fn size(self: *const Self) usize {
-            return self.contents.items.len * @sizeOf(T);
+            return self.contents.items.len * self.element_stride;
+        }
+
+        /// Returns the full allocated range used when creating a bind group.
+        pub fn bindingSize(self: *const Self) usize {
+            return self.allocation_size;
         }
 
         /// Returns the configured vertex/instance step mode after checking the role.
@@ -303,8 +366,8 @@ pub fn GpuBuffer(comptime T: type) type {
 
         fn markDirty(self: *Self, first: usize, count: usize) void {
             if (count == 0) return;
-            const start = first * @sizeOf(T);
-            const end = (first + count) * @sizeOf(T);
+            const start = first * self.element_stride;
+            const end = (first + count) * self.element_stride;
             self.dirty_start = if (self.dirty_start) |current| @min(current, start) else start;
             self.dirty_end = @max(self.dirty_end, end);
         }
@@ -362,6 +425,20 @@ test "buffer roles map to WebGPU usage flags and reject invalid bindings" {
     try checkRole(.{ .vertex = true, .storage = true }, .storage);
 }
 
+test "Material binding roles request uniform or storage usage plus uploads" {
+    const uniform_usage = usageForRoles(rolesForMaterialBinding(.uniform));
+    try std.testing.expect(uniform_usage.uniform);
+    try std.testing.expect(uniform_usage.copy_dst);
+    try std.testing.expect(!uniform_usage.storage);
+
+    inline for (.{ .storage_read_only, .storage_read_write, .storage_atomic }) |role| {
+        const storage_usage = usageForRoles(rolesForMaterialBinding(role));
+        try std.testing.expect(storage_usage.storage);
+        try std.testing.expect(storage_usage.copy_dst);
+        try std.testing.expect(!storage_usage.uniform);
+    }
+}
+
 test "index buffers require a matching integer element type" {
     try validateOptions(u16, .{ .index = true }, .uint16, .vertex);
     try validateOptions(u32, .{ .index = true }, .uint32, .vertex);
@@ -384,6 +461,7 @@ test "buffer mutations enforce capacity and mark changed content dirty" {
         .index_format = null,
         .step_mode = .vertex,
         .allocation_size = 8,
+        .element_stride = @sizeOf(u32),
     };
 
     try buffer.append(10);
@@ -399,6 +477,30 @@ test "buffer mutations enforce capacity and mark changed content dirty" {
     try std.testing.expectError(error.IndexOutOfBounds, buffer.set(2, 30));
     try buffer.resize(1, 0);
     try std.testing.expectEqual(@as(usize, 1), buffer.len());
-    try buffer.clear();
+    buffer.clear();
     try std.testing.expectEqual(@as(usize, 0), buffer.len());
+}
+
+test "padded array stride controls buffer allocation and dirty byte ranges" {
+    const Element = [3]f32;
+    const Buffer = GpuBuffer(Element);
+    var contents = try std.ArrayList(Element).initCapacity(std.testing.allocator, 2);
+    defer contents.deinit(std.testing.allocator);
+    var buffer = Buffer{
+        .buffer_handle = undefined,
+        .allocator = std.testing.allocator,
+        .contents = contents,
+        .roles = .{ .storage = true },
+        .capacity_items = 2,
+        .index_format = null,
+        .step_mode = .vertex,
+        .allocation_size = 32,
+        .element_stride = 16,
+    };
+
+    try buffer.append(.{ 1, 2, 3 });
+    try std.testing.expectEqual(@as(usize, 16), buffer.size());
+    try std.testing.expectEqual(@as(usize, 32), buffer.bindingSize());
+    try std.testing.expectEqual(@as(?usize, 0), buffer.dirty_start);
+    try std.testing.expectEqual(@as(usize, 16), buffer.dirty_end);
 }
