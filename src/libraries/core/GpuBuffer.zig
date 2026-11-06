@@ -28,15 +28,6 @@ pub const Roles = packed struct(u5) {
     storage: bool = false,
     indirect: bool = false,
 };
-pub const CreateDescriptor = struct {
-    capacity: usize,
-    allocator: std.mem.Allocator,
-    context: *zgpu.GraphicsContext,
-    roles: Roles,
-    element_stride: ?usize = null,
-    step_mode: wgpu.VertexStepMode = .vertex,
-    index_format: ?wgpu.IndexFormat = null,
-};
 
 pub const MaterialBufferRole = enum {
     uniform,
@@ -147,6 +138,15 @@ pub fn GpuBuffer(comptime T: type) type {
 
         const Self = @This();
 
+        pub const CreateDescriptor = struct {
+            capacity: usize,
+            allocator: std.mem.Allocator,
+            context: *zgpu.GraphicsContext,
+            roles: Roles,
+            element_stride: ?usize = null,
+            step_mode: wgpu.VertexStepMode = .vertex,
+            index_format: ?wgpu.IndexFormat = null,
+        };
         /// Parameters for allocating the CPU mirror and GPU buffer.
         /// Allocates a buffer with the requested capacity and usage roles.
         ///
@@ -181,6 +181,14 @@ pub fn GpuBuffer(comptime T: type) type {
                 .allocation_size = allocation_size,
                 .element_stride = element_stride,
             };
+        }
+
+        const UnitBufferDescriptor = struct { allocator: std.mem.Allocator, context: *zgpu.GraphicsContext, roles: Roles, element_stride: ?usize = null, step_mode: wgpu.VertexStepMode = .vertex, index_format: ?wgpu.IndexFormat = null, content: T };
+        pub fn unit(descriptor: UnitBufferDescriptor) !Self {
+            var buffer = try Self.allocate(.{ .allocator = descriptor.allocator, .context = descriptor.context, .roles = descriptor.roles, .capacity = 1, .step_mode = descriptor.step_mode, .element_stride = descriptor.element_stride, .index_format = descriptor.index_format });
+            try buffer.append(descriptor.content);
+            try buffer.flush(descriptor.context);
+            return buffer;
         }
 
         /// Releases the GPU resource and CPU-side contents.

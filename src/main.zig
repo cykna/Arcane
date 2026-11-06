@@ -100,14 +100,7 @@ pub fn main(_: std.process.Init) !void {
 
         _ = try world.insert(camera);
         defer camera.deinit(window.context);
-        var buffer = try Buffers.GpuBuffer(triangle.package_globals_MeshData).allocate(.{
-            .allocator = window.allocator,
-            .context = window.context,
-            .capacity = 3,
-            .roles = .{ .storage = true },
-        });
-        try buffer.append(.{ .model = Transform.identity().toWGslMat4x4(), .normal_matrix = Transform.identity().toWGslMat4x4() });
-        try buffer.flush(window.context);
+        const buffer = try Buffers.GpuBuffer(triangle.package_globals_MeshData).unit(.{ .allocator = window.allocator, .context = window.context, .roles = .{ .storage = true }, .content = .{ .model = Transform.identity().toWGslMat4x4(), .normal_matrix = Transform.identity().toWGslMat4x4() } });
         const binding = Buffers.BufferBinding(triangle.package_globals_MeshData).init(.{ .allocator = window.allocator, .context = window.context, .pipeline = render_pipeline, .binding_index = 0, .group_index = 1, .buffer = buffer });
 
         var vertex_streams = try create_triangle(window);
