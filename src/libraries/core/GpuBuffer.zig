@@ -1,3 +1,4 @@
+const StructReflect = @import("../reflects/Reflect.zig").StructReflect;
 const std = @import("std");
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
@@ -378,6 +379,17 @@ pub fn GpuBuffer(comptime T: type) type {
             const end = (first + count) * self.element_stride;
             self.dirty_start = if (self.dirty_start) |current| @min(current, start) else start;
             self.dirty_end = @max(self.dirty_end, end);
+        }
+        pub const AsBindingDescriptor = StructReflect(BufferBinding(T).CreateBindingOptions).without("buffer").raw();
+        pub fn asBinding(self: Self, config: AsBindingDescriptor) !BufferBinding(T) {
+            return BufferBinding(T).init(.{
+                .allocator = config.allocator,
+                .context = config.context,
+                .buffer = self,
+                .pipeline = config.pipeline,
+                .binding_index = config.binding_index,
+                .group_index = config.group_index,
+            });
         }
     };
 }

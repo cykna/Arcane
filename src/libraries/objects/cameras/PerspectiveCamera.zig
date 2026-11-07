@@ -59,7 +59,7 @@ pub const PerspectiveCamera = struct {
     ///
     /// A zero-sized viewport is rejected, which can occur while a window is
     /// minimized; callers should skip rendering until it has nonzero dimensions.
-    pub fn setViewport(self: World.QueryCursor(Self), width: u32, height: u32) !void {
+    pub fn setViewport(self: *World.QueryCursor(Self, World.Mutabilities.mut), width: u32, height: u32) !void {
         if (width == 0 or height == 0) return error.InvalidViewport;
         self.get(.camera).aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
     }
@@ -105,7 +105,7 @@ pub const PerspectiveCamera = struct {
         return self.get(.camera).matrices().uniformData();
     }
 
-    pub fn update(self: World.QueryCursor(Self), ctx: *zgpu.GraphicsContext) !void {
+    pub fn update(self: *World.QueryCursor(Self, World.Mutabilities.mut), ctx: *zgpu.GraphicsContext) !void {
         zmath.storeArr3(&self.get(.camera).position, self.get(.transform).position);
         self.get(.camera).rotation = self.get(.transform).rotation;
         try self.get(.binding).update(ctx, 0, self.get(.camera).matrices().uniformData());

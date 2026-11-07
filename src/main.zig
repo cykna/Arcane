@@ -1,7 +1,7 @@
 const Buffers = @import("libraries/core/GpuBuffer.zig");
 const ArcaneEcs = @import("libraries/ecs/Main.zig");
 const World = ArcaneEcs.World;
-const Queries = ArcaneEcs.Queries;
+
 const Transform = @import("libraries/math/Transform.zig").Transform;
 const std = @import("std");
 const zmath = @import("zmath");
@@ -101,7 +101,13 @@ pub fn main(_: std.process.Init) !void {
         _ = try world.insert(camera);
         defer camera.deinit(window.context);
         const buffer = try Buffers.GpuBuffer(triangle.package_globals_MeshData).unit(.{ .allocator = window.allocator, .context = window.context, .roles = .{ .storage = true }, .content = .{ .model = Transform.identity().toWGslMat4x4(), .normal_matrix = Transform.identity().toWGslMat4x4() } });
-        const binding = Buffers.BufferBinding(triangle.package_globals_MeshData).init(.{ .allocator = window.allocator, .context = window.context, .pipeline = render_pipeline, .binding_index = 0, .group_index = 1, .buffer = buffer });
+        const binding = try buffer.asBinding(.{
+            .allocator = window.allocator,
+            .context = window.context,
+            .pipeline = render_pipeline,
+            .binding_index = 0,
+            .group_index = 1,
+        });
 
         var vertex_streams = try create_triangle(window);
         defer vertex_streams.deinit(window.context);
@@ -110,23 +116,19 @@ pub fn main(_: std.process.Init) !void {
             glfw.pollEvents();
             const processing = window.startProcessing();
             {
-                var q: World.QueryCursor(PerspectiveCamera), _ = try world.query(PerspectiveCamera, Queries.Null);
+                var q, _ = try world.query(PerspectiveCamera, World.Loaders.Null, World.Mutabilities.mut);
+                while (q.nextItems(.{.transform})) |item| {
+                    var transform = item[0];
 
-                for (q.items(.transform)) |*transform| {
                     transform.position[2] += 0.01;
-
                     if (processing.resize and processing.width > 0 and processing.height > 0) {
                         try PerspectiveCamera.setViewport(
-                            q,
+                            &q,
                             @intFromFloat(processing.width),
                             @intFromFloat(processing.height),
                         );
                     }
-                    q.next() orelse {
-                        std.debug.print("Weird shouldnt break", .{});
-                        break;
-                    };
-                    try PerspectiveCamera.update(q, window.context);
+                    try PerspectiveCamera.update(&q, window.context);
                 }
             }
 
