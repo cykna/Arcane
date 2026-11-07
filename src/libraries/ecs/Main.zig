@@ -1,5 +1,4 @@
 pub const World = @import("World.zig").World;
-pub const Queries = @import("Queries.zig");
 pub const TypeId = *const struct { _: u8 };
 pub const OpaqueEntityId = struct { id: TypeId, index: usize };
 pub fn EntityId(comptime T: type) type {

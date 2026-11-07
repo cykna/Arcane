@@ -1,3 +1,5 @@
+const Query = @import("./Query.zig");
+const TypeArray = @import("./TypeArray.zig").TypeArray;
 const std = @import("std");
 const arcaneecs = @import("./Main.zig");
 const TypeId = arcaneecs.TypeId;
@@ -5,11 +7,24 @@ const typeId = arcaneecs.typeId;
 const EntityId = arcaneecs.EntityId;
 
 pub const World = struct {
+    pub const Mutabilities = struct {
+        pub const imut = Query.Imut;
+        pub const mut = Query.Mut;
+    };
+    pub const QueryCursor = Query.QueryCursor;
+    pub const Loaders = struct {
+        pub const Null = Query.Null;
+        pub const Global = Query.Resource;
+        pub const Join = Query.Join;
+    };
+
     const PhantomMultiArrayList = struct {
         _: [*]align(1) u8,
         __: usize,
         ___: usize,
     };
+
+    const Callback = *const fn (*World) anyerror!void;
 
     const Global = struct {
         ptr: *anyopaque,
@@ -17,8 +32,8 @@ pub const World = struct {
     };
 
     globals: std.array_hash_map.Auto(TypeId, Global) = .empty,
-    storage: std.ArrayList(PhantomMultiArrayList) = .empty,
-    types: std.array_hash_map.Auto(TypeId, u32) = .empty,
+    storage: TypeArray(PhantomMultiArrayList) = .{},
+    callbacks: TypeArray(std.ArrayList(Callback)) = .{},
     allocator: std.mem.Allocator,
 
     const Self = @This();
@@ -56,16 +71,20 @@ pub const World = struct {
     }
 
     pub fn storageOf(self: *Self, comptime T: type) !*std.MultiArrayList(T) {
-        const t = typeId(T);
-        if (self.types.get(t)) |index| {
-            return @ptrCast(&self.storage.items[index]);
-        } else {
-            const index = self.storage.items.len;
-            const array = try std.MultiArrayList(T).initCapacity(self.allocator, 0);
-            try self.storage.append(self.allocator, @as(*const PhantomMultiArrayList, @ptrCast(&array)).*);
-            try self.types.put(self.allocator, t, @intCast(index));
-            return @ptrCast(&self.storage.items[index]);
-        }
+        const array = try std.MultiArrayList(T).initCapacity(self.allocator, 0);
+        const arraylist = try self.storage.getOrPut(self.allocator, T, @as(*const PhantomMultiArrayList, @ptrCast(&array)).*);
+        return @ptrCast(arraylist);
+    }
+
+    pub fn callbacksOf(self: *Self, comptime T: type) !*std.ArrayList(Callback) {
+        const callbacks = try std.ArrayList(Callback).initCapacity(self.allocator, 0);
+        const callbacklist = try self.callbacks.getOrPut(self.allocator, T, callbacks);
+        return callbacklist;
+    }
+
+    pub fn addCallbackFor(self: *Self, comptime T: type, callback: Callback) !void {
+        const storage = try self.callbacksOf(T);
+        storage.append(self.allocator, callback);
     }
 
     pub fn read(self: *Self, comptime T: type, entity: EntityId(T)) !?T {
@@ -82,8 +101,9 @@ pub const World = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.types.deinit(self.allocator);
         self.storage.deinit(self.allocator);
+        self.callbacks.deinit(self.allocator);
+
         {
             var it = self.globals.iterator();
             while (it.next()) |entry| {
@@ -93,32 +113,8 @@ pub const World = struct {
         self.globals.deinit(self.allocator);
     }
 
-    pub fn QueryCursor(comptime T: type) type {
-        return struct {
-            list: *std.MultiArrayList(T),
-            index: usize = 0,
-            const Field = std.meta.FieldEnum(T);
-
-            pub fn next(self: *@This()) ?void {
-                if (self.index > self.list.len) {
-                    return null;
-                } else {
-                    return;
-                }
-            }
-
-            pub fn get(self: @This(), comptime f: Field) *@FieldType(T, @tagName(f)) {
-                return &self.list.items(f)[self.index];
-            }
-
-            pub fn items(self: @This(), comptime f: Field) []@FieldType(T, @tagName(f)) {
-                return self.list.items(f);
-            }
-        };
-    }
-
-    pub fn query(self: *Self, comptime T: type, comptime Condition: type) !struct { QueryCursor(T), Condition.Output } {
+    pub fn query(self: *Self, comptime T: type, comptime Condition: type, comptime Mutability: type) !struct { Query.QueryCursor(T, Mutability), Condition.Output } {
         const s = try self.storageOf(T);
-        return .{ QueryCursor(T){ .list = s }, Condition.fetch(self) };
+        return .{ Query.QueryCursor(T, Mutability){ .list = s }, Condition.fetch(self) };
     }
 };
