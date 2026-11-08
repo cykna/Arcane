@@ -14,7 +14,6 @@ pub const PerspectiveCamera = struct {
     const Self = @This();
     const CreateCameraOptions = struct {
         context: *zgpu.GraphicsContext,
-        pipeline: zgpu.RenderPipelineHandle,
         allocator: std.mem.Allocator,
         group_index: u32 = 0,
         binding_index: u32 = 0,

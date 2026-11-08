@@ -168,6 +168,17 @@ pub const GpuCamera = struct {
         };
     }
 
+    /// Updates the projection aspect ratio from a non-zero pixel viewport.
+    pub fn setViewport(self: *GpuCamera, width: u32, height: u32) !void {
+        if (width == 0 or height == 0) return error.InvalidViewport;
+        const old_aspect = self.aspect_ratio;
+        self.aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
+        self.validate() catch |err| {
+            self.aspect_ratio = old_aspect;
+            return err;
+        };
+    }
+
     /// Calculates view, WebGPU-depth perspective, view-projection, and inverse matrices.
     pub fn matrices(self: *const GpuCamera) Matrices {
         const view = zmath.mul(zmath.translationV(-zmath.loadArr3(self.position)), zmath.quatToMat(zmath.conjugate(self.rotation)));
@@ -301,8 +312,8 @@ test "camera viewport and pose changes are independent and validated" {
 
     const old_position = first.position;
     try std.testing.expectError(
-        error.InvalidCameraDirection,
-        first.setPose(.{ 1, 2, 3 }, .{ 1, 2, 3 }, .{ 0, 1, 0 }),
+        error.InvalidCameraRotation,
+        first.setPose(.{ 1, 2, 3 }, zmath.f32x4(0, 0, 0, 0)),
     );
     try std.testing.expectEqual(old_position, first.position);
 }

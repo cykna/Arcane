@@ -1,0 +1,72 @@
+const std = @import("std");
+const zgpu = @import("zgpu");
+const Buffers = @import("../core/GpuBuffer.zig");
+
+/// Shader-specific instance records backed by one growable storage buffer.
+/// The buffer owns GPU storage and its CPU mirror; records are appended in
+/// bulk, never allocated as individual engine objects.
+pub fn InstanceBuffer(comptime InstanceData: type) type {
+    return struct {
+        buffer: Buffers.GpuBuffer(InstanceData),
+        context: *zgpu.GraphicsContext,
+
+        const Self = @This();
+
+        pub fn init(options: struct {
+            allocator: std.mem.Allocator,
+            context: *zgpu.GraphicsContext,
+            initial_capacity: usize = 0,
+            element_stride: ?usize = null,
+        }) !Self {
+            return .{
+                .buffer = try Buffers.GpuBuffer(InstanceData).allocate(.{
+                    .allocator = options.allocator,
+                    .context = options.context,
+                    .capacity = @max(options.initial_capacity, 1),
+                    .roles = .{ .storage = true },
+                    .element_stride = options.element_stride,
+                }),
+                .context = options.context,
+            };
+        }
+
+        pub fn append(self: *Self, data: InstanceData) !void {
+            try self.buffer.appendGrowing(self.context, data);
+        }
+
+        pub fn appendSlice(self: *Self, data: []const InstanceData) !void {
+            const needed = try std.math.add(usize, self.buffer.len(), data.len);
+            if (needed > self.buffer.capacity()) try self.buffer.reserve(self.context, needed);
+            try self.buffer.appendSlice(data);
+        }
+
+        pub fn flush(self: *Self) !void {
+            try self.buffer.flush(self.context);
+        }
+
+        pub fn count(self: *const Self) usize {
+            return self.buffer.len();
+        }
+
+        /// Returns the backing GPU buffer for generated-binding integration.
+        /// Callers create/cache bind groups using the binding metadata for their
+        /// shader, then rebuild that group after reserve changes the handle.
+        pub fn gpuBuffer(self: *Self) *Buffers.GpuBuffer(InstanceData) {
+            return &self.buffer;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.buffer.deinit(self.context);
+            self.* = undefined;
+        }
+    };
+}
+
+test "instance buffer preserves shader-specific element type" {
+    const ModelData = struct { model: [16]f32 };
+    const TintedData = struct { model: [16]f32, tint: [4]f32 };
+    const A = InstanceBuffer(ModelData);
+    const B = InstanceBuffer(TintedData);
+    try std.testing.expect(A != B);
+    try std.testing.expect(@FieldType(A, "buffer") == Buffers.GpuBuffer(ModelData));
+}
