@@ -576,9 +576,9 @@ test "one asset creates vertex stream views with shader-specific subsets" {
         .position = &position,
     });
 
-    try std.testing.expectEqual(@as(usize, 3), @TypeOf(all.vertex_buffer_layouts).len);
-    try std.testing.expectEqual(@as(usize, 2), @TypeOf(uv_depth.vertex_buffer_layouts).len);
-    try std.testing.expectEqual(@as(usize, 1), @TypeOf(depth.vertex_buffer_layouts).len);
+    try std.testing.expectEqual(@as(usize, 3), VertexStreams(ThreeInputShader).vertex_buffer_layouts.len);
+    try std.testing.expectEqual(@as(usize, 2), VertexStreams(TwoInputShader).vertex_buffer_layouts.len);
+    try std.testing.expectEqual(@as(usize, 1), VertexStreams(OneInputShader).vertex_buffer_layouts.len);
     try std.testing.expectEqual(@as(usize, 2), all.vertexCount());
     try std.testing.expectEqual(@as(usize, 2), uv_depth.vertexCount());
     try std.testing.expectEqual(@as(usize, 2), depth.vertexCount());

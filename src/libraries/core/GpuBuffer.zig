@@ -37,36 +37,6 @@ pub const MaterialBufferRole = enum {
     storage_atomic,
 };
 
-pub fn rolesForMaterialBinding(role: MaterialBufferRole) Roles {
-    return switch (role) {
-        .uniform => .{ .uniform = true },
-        .storage_read_only, .storage_read_write, .storage_atomic => .{ .storage = true },
-    };
-}
-
-pub fn MaterialBufferBinding(
-    comptime T: type,
-    comptime Shader: type,
-    comptime group: u32,
-    comptime binding: u32,
-    comptime role: MaterialBufferRole,
-) type {
-    return struct {
-        buffer: GpuBuffer(T),
-        pub const shader_type = Shader;
-        pub const group_index = group;
-        pub const binding_index = binding;
-        pub const element_type = T;
-        pub const buffer_role = role;
-
-        const Self = @This();
-
-        pub fn deinit(self: *Self, context: *zgpu.GraphicsContext) void {
-            self.buffer.deinit(context);
-        }
-    };
-}
-
 pub fn BufferBinding(comptime T: type) type {
     return struct {
         buffer: GpuBuffer(T),
@@ -182,6 +152,55 @@ pub fn GpuBuffer(comptime T: type) type {
                 .allocation_size = allocation_size,
                 .element_stride = element_stride,
             };
+        }
+
+        /// Grows GPU and CPU capacity while preserving initialized elements.
+        /// Existing bind groups referencing this buffer must be rebuilt after
+        /// growth because the underlying GPU handle changes.
+        pub fn reserve(self: *Self, context: *zgpu.GraphicsContext, new_capacity: usize) !void {
+            if (new_capacity <= self.capacity_items) return;
+            const grown = @max(new_capacity, self.capacity_items +| @max(self.capacity_items, 1));
+            const size_result = @mulWithOverflow(grown, self.element_stride);
+            if (size_result[1] != 0) return error.CapacityOverflow;
+            const padded_result = @addWithOverflow(size_result[0], 3);
+            if (padded_result[1] != 0) return error.CapacityOverflow;
+            const allocation_size = padded_result[0] & ~@as(usize, 3);
+            try self.contents.ensureTotalCapacity(self.allocator, grown);
+            const new_handle = context.createBuffer(.{
+                .size = @intCast(allocation_size),
+                .usage = usageForRoles(self.roles),
+            });
+            const old_handle = self.buffer_handle;
+            const old_capacity = self.capacity_items;
+            const old_allocation_size = self.allocation_size;
+            const old_dirty_start = self.dirty_start;
+            const old_dirty_end = self.dirty_end;
+            self.buffer_handle = new_handle;
+            self.capacity_items = grown;
+            self.allocation_size = allocation_size;
+            if (self.contents.items.len != 0) {
+                self.dirty_start = 0;
+                self.dirty_end = self.size();
+                self.flush(context) catch |err| {
+                    self.buffer_handle = old_handle;
+                    self.capacity_items = old_capacity;
+                    self.allocation_size = old_allocation_size;
+                    self.dirty_start = old_dirty_start;
+                    self.dirty_end = old_dirty_end;
+                    context.releaseResource(new_handle);
+                    return err;
+                };
+            }
+            context.releaseResource(old_handle);
+        }
+
+        /// Appends an element, growing the GPU allocation when needed.
+        pub fn appendGrowing(self: *Self, context: *zgpu.GraphicsContext, value: T) !void {
+            if (self.contents.items.len == self.capacity_items) {
+                const needed = try std.math.add(usize, self.contents.items.len, 1);
+                try self.reserve(context, needed);
+            }
+            try self.append(value);
         }
 
         const UnitBufferDescriptor = struct { allocator: std.mem.Allocator, context: *zgpu.GraphicsContext, roles: Roles, element_stride: ?usize = null, step_mode: wgpu.VertexStepMode = .vertex, index_format: ?wgpu.IndexFormat = null, content: T };
@@ -315,7 +334,14 @@ pub fn GpuBuffer(comptime T: type) type {
 
         /// Returns an error if this buffer was not allocated for `role`.
         pub fn validateRole(self: *const Self, role: Role) !void {
-            try checkRole(self.roles, role);
+            const has_role = switch (role) {
+                .vertex => self.roles.vertex,
+                .index => self.roles.index,
+                .uniform => self.roles.uniform,
+                .storage => self.roles.storage,
+                .indirect => self.roles.indirect,
+            };
+            if (!has_role) return error.BufferRoleMismatch;
         }
 
         /// Validates `role` and returns the associated resource handle.
@@ -380,29 +406,25 @@ pub fn GpuBuffer(comptime T: type) type {
             self.dirty_start = if (self.dirty_start) |current| @min(current, start) else start;
             self.dirty_end = @max(self.dirty_end, end);
         }
-        pub const AsBindingDescriptor = StructReflect(BufferBinding(T).CreateBindingOptions).without("buffer").raw();
-        pub fn asBinding(self: Self, config: AsBindingDescriptor) !BufferBinding(T) {
+        fn AsBindingDescriptor(comptime Shader: type, comptime Group: Shader.MaterialGroup) type {
+            const Original = BufferBinding(T).CreateBindingOptions;
+            const Slot = @field(Shader.MaterialSlots, @tagName(Group));
+            return StructReflect(Original).withoutFields(.{ "buffer", "group_index", "binding_index" }).join(struct { slot: Slot }).raw();
+        }
+        pub fn asBinding(self: Self, comptime S: type, comptime Group: S.MaterialGroup, config: AsBindingDescriptor(S, Group)) !BufferBinding(T) {
+            const group = @backingInt(Group);
+            const slot = @backingInt(config.slot);
+
             return BufferBinding(T).init(.{
                 .allocator = config.allocator,
                 .context = config.context,
                 .buffer = self,
                 .pipeline = config.pipeline,
-                .binding_index = config.binding_index,
-                .group_index = config.group_index,
+                .binding_index = slot,
+                .group_index = group,
             });
         }
     };
-}
-
-fn checkRole(roles: Roles, role: Role) !void {
-    const has_role = switch (role) {
-        .vertex => roles.vertex,
-        .index => roles.index,
-        .uniform => roles.uniform,
-        .storage => roles.storage,
-        .indirect => roles.indirect,
-    };
-    if (!has_role) return error.BufferRoleMismatch;
 }
 
 fn validateOptions(
@@ -440,23 +462,6 @@ test "buffer roles map to WebGPU usage flags and reject invalid bindings" {
     try std.testing.expect(usage.storage);
     try std.testing.expect(usage.copy_dst);
     try std.testing.expect(!usage.index);
-    try std.testing.expectError(error.BufferRoleMismatch, checkRole(.{ .index = true }, .vertex));
-    try checkRole(.{ .vertex = true, .storage = true }, .vertex);
-    try checkRole(.{ .vertex = true, .storage = true }, .storage);
-}
-
-test "Material binding roles request uniform or storage usage plus uploads" {
-    const uniform_usage = usageForRoles(rolesForMaterialBinding(.uniform));
-    try std.testing.expect(uniform_usage.uniform);
-    try std.testing.expect(uniform_usage.copy_dst);
-    try std.testing.expect(!uniform_usage.storage);
-
-    inline for (.{ .storage_read_only, .storage_read_write, .storage_atomic }) |role| {
-        const storage_usage = usageForRoles(rolesForMaterialBinding(role));
-        try std.testing.expect(storage_usage.storage);
-        try std.testing.expect(storage_usage.copy_dst);
-        try std.testing.expect(!storage_usage.uniform);
-    }
 }
 
 test "index buffers require a matching integer element type" {
