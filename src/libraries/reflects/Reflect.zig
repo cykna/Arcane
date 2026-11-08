@@ -174,11 +174,13 @@ pub fn TupleReflect(comptime T: anytype) StructReflector {
 
 pub const Reflect = struct {
     pub fn Struct(comptime T: anytype) StructReflector {
-        const s = @typeInfo(@TypeOf(T));
+        const t = if (@TypeOf(T) == type) T else @TypeOf(T);
 
-        if (s != .@"struct") @compileError("Reflect.Struct only accepts struct types");
+        const s = @typeInfo(t);
+
+        if (s != .@"struct") @compileError(std.fmt.comptimePrint("Reflect.Struct only accepts struct types, isntead type info of '{s}' is {any}", .{ @typeName(T), s }));
         if (s.@"struct".is_tuple) @compileError("Reflect.Struct only accepts struct types");
-        return StructReflector{ .t = @TypeOf(T) };
+        return StructReflector{ .t = t };
     }
     pub fn Ptr(comptime T: type) PointerReflector {
         const s = @typeInfo(T);
