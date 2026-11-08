@@ -16,6 +16,14 @@ pub fn TypeArray(comptime T: type) type {
             return &self.values.items[index];
         }
 
+        /// Returns the current inline value index for a compile-time type key.
+        /// The index remains valid while this key stays in the map, even if
+        /// `values` reallocates; pointers to the corresponding value do not.
+        pub fn indexOf(self: *const Self, comptime U: type) ?usize {
+            const index = self.map.get(typeId(U)) orelse return null;
+            return index;
+        }
+
         pub fn getOrPut(
             self: *Self,
             allocator: std.mem.Allocator,

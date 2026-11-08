@@ -1,3 +1,5 @@
+const WorldScene = @import("./Scene.zig");
+const zgpu = @import("zgpu");
 const Query = @import("./Query.zig");
 const TypeArray = @import("./TypeArray.zig").TypeArray;
 const std = @import("std");
@@ -18,21 +20,14 @@ pub const World = struct {
         pub const Join = Query.Join;
     };
 
-    const PhantomMultiArrayList = struct {
-        _: [*]align(1) u8,
-        __: usize,
-        ___: usize,
-    };
-
     const Callback = *const fn (*World) anyerror!void;
 
     const Global = struct {
         ptr: *anyopaque,
         destroy: *const fn (*anyopaque, std.mem.Allocator) void,
     };
-
     globals: std.array_hash_map.Auto(TypeId, Global) = .empty,
-    storage: TypeArray(PhantomMultiArrayList) = .{},
+    storage: TypeArray(std.MultiArrayList(void)) = .{},
     callbacks: TypeArray(std.ArrayList(Callback)) = .{},
     allocator: std.mem.Allocator,
 
@@ -65,6 +60,23 @@ pub const World = struct {
         try self.globals.put(self.allocator, typeId(T), .{ .ptr = ptr, .destroy = &Impl.destroy });
     }
 
+    fn GetGlobalsType(comptime T: anytype) type {
+        const info = @typeInfo(@TypeOf(T)).@"struct";
+        var types: [info.field_types.len]type = undefined;
+        inline for (info.field_types, 0..) |_, i| {
+            types[i] = *T[i];
+        }
+        return @Tuple(&types);
+    }
+    ///Get all the globals on the iven type `T`. If providing a type such as .{Transform, Time} returns ?.{*Transform, *Time}
+    pub fn getGlobals(self: *Self, comptime T: anytype) ?GetGlobalsType(T) {
+        var globals: GetGlobalsType(T) = undefined;
+        inline for (T, 0..) |GlobalType, i| {
+            globals[i] = self.getGlobal(GlobalType) orelse return null;
+        }
+        return globals;
+    }
+    ///Gets a global with the given `T` type
     pub fn getGlobal(self: *Self, comptime T: type) ?*T {
         const p = self.globals.get(typeId(T)) orelse return null;
         return @ptrCast(@alignCast(p.ptr));
@@ -72,7 +84,7 @@ pub const World = struct {
 
     pub fn storageOf(self: *Self, comptime T: type) !*std.MultiArrayList(T) {
         const array = try std.MultiArrayList(T).initCapacity(self.allocator, 0);
-        const arraylist = try self.storage.getOrPut(self.allocator, T, @as(*const PhantomMultiArrayList, @ptrCast(&array)).*);
+        const arraylist = try self.storage.getOrPut(self.allocator, T, @as(*const std.MultiArrayList(void), @ptrCast(&array)).*);
         return @ptrCast(arraylist);
     }
 
