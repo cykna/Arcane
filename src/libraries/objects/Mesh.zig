@@ -43,5 +43,12 @@ pub fn Mesh(comptime Shader: type) type {
             const instanceQuantity = if (self.instanceCount() == 0) 1 else self.instanceCount();
             pass.draw(@intCast(self.vertexCount()), @intCast(instanceQuantity), 0, 0);
         }
+
+        /// Draws this geometry for an externally managed GPU instance buffer.
+        /// The caller binds the shader-compatible instance storage group first.
+        /// This keeps instance ownership and grouping separate from geometry.
+        pub fn drawInstanced(self: *const Self, pass: zgpu.wgpu.RenderPassEncoder, count: usize) void {
+            pass.draw(@intCast(self.vertexCount()), @intCast(count), 0, 0);
+        }
     };
 }

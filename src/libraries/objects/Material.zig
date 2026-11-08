@@ -1,17 +1,7 @@
 const std = @import("std");
 const zgpu = @import("zgpu");
 const Buffers = @import("../core/GpuBuffer.zig");
-
-/// Buffer allocation settings for a generated shader slot.
-///
-/// Uniform slots accept capacity 1. Storage runtime arrays use capacity as the
-/// number of reflected element values; fixed arrays require their reflected
-/// length, and a non-array storage value accepts capacity 1.
-pub const InitBindingOptions = struct {
-    allocator: std.mem.Allocator,
-    context: *zgpu.GraphicsContext,
-    capacity: usize,
-};
+const VertexStreams = @import("../core/VertexStreams.zig").VertexStreams;
 
 pub fn MaterialOptions(comptime T: type) type {
     var material_group_count: usize = 0;
@@ -41,9 +31,10 @@ pub fn MaterialOptions(comptime T: type) type {
         var member_attrs: [buffer_count]std.lang.Type.Struct.FieldAttributes = @splat(.{});
         var member_idx: usize = 0;
         for (T.group_bindings[group_pos]) |binding| {
+            const Element = binding.ty orelse @compileError("buffer binding is missing its element type");
             if (binding.kind != .buffer) continue;
             member_names[member_idx] = binding.slot_name;
-            member_types[member_idx] = slotBindingType(T, binding);
+            member_types[member_idx] = Buffers.BufferBinding(Element);
             member_idx += 1;
         }
         group_types[material_group_index] = @Struct(.auto, null, &member_names, &member_types, &member_attrs);
@@ -57,81 +48,68 @@ pub fn Material(comptime T: type) type {
     const Options = MaterialOptions(T);
     return struct {
         binds: Options,
+        cached_groups: [T.group_indices.len]zgpu.BindGroupHandle = @splat(.{}),
+        groups_ready: bool = false,
 
         const Self = @This();
 
-        /// Creates the buffer for one generated shader slot. Its Zig element
-        /// type, usage flags, and array stride come from anygpu metadata.
-        /// The group and slot must be compile-time enum literals; non-buffer
-        /// resources and binding arrays are rejected at compile time.
-        ///
-        /// Uniform buffers are single-value allocations. For storage buffers,
-        /// capacity is the number of array elements when WGSL declares an
-        /// array; non-array storage values have capacity 1. Bind-group creation
-        /// is deferred until `bind`, after all group slots are present.
-        pub fn initBinding(
-            comptime group: T.MaterialGroup,
-            comptime slot: @field(T.MaterialSlots, @tagName(group)),
-            options: InitBindingOptions,
-        ) !slotBindingType(T, bindingForSlot(T, @backingInt(group), @backingInt(slot))) {
-            const metadata = bindingForSlot(T, @backingInt(group), @backingInt(slot));
-            const role = bufferRole(metadata);
-            const Element = metadata.ty orelse @compileError(slotError(T, metadata, "does not have a buffer element type"));
-            if (metadata.count != null) @compileError(slotError(T, metadata, "is a binding array, which Material.initBinding does not support"));
-            if (metadata.resource_type == .uniform and metadata.array_stride != null) {
-                @compileError(slotError(T, metadata, "is a uniform array; initBinding requires one non-array uniform value"));
-            }
-            try validateCapacity(metadata, options.capacity);
-
-            const element_stride = metadata.array_stride orelse @sizeOf(Element);
-            if (element_stride < @sizeOf(Element)) {
-                @compileError(slotError(T, metadata, "has an array stride smaller than its Zig element type"));
-            }
-            const buffer = try Buffers.GpuBuffer(Element).allocate(.{
-                .allocator = options.allocator,
-                .context = options.context,
-                .capacity = options.capacity,
-                .roles = Buffers.rolesForMaterialBinding(role),
-                .element_stride = if (metadata.array_stride) |stride| @intCast(stride) else null,
-            });
-            return .{ .buffer = buffer };
+        pub fn initPipeline(context: *zgpu.GraphicsContext, source: [:0]const u8) zgpu.RenderPipelineHandle {
+            return T.Pipeline.createWithVertexLayouts(
+                context,
+                source,
+                &VertexStreams(T).vertex_buffer_layouts,
+            );
         }
 
-        /// Assembles one bind group per shader group for this render pass.
-        pub fn bind(self: *const Self, context: *zgpu.GraphicsContext, pass: zgpu.wgpu.RenderPassEncoder) !void {
+        /// Creates and caches bind groups after material resources are set up.
+        /// Call invalidateBindings after replacing any bound GPU resource.
+        pub fn prepare(self: *Self, context: *zgpu.GraphicsContext) !void {
+            self.invalidateBindings(context);
+            var prepared: usize = 0;
+            errdefer inline for (T.group_indices, 0..) |_, group_pos| {
+                if (prepared > group_pos) context.releaseResource(self.cached_groups[group_pos]);
+                self.cached_groups[group_pos] = .{};
+            };
             inline for (T.group_indices, 0..) |group_index, group_pos| {
-                const handle = try createGroup(T, self, context, group_index, group_pos);
-                defer context.releaseResource(handle);
-                const group = context.lookupResource(handle) orelse return error.MaterialBindGroupNotFound;
+                self.cached_groups[group_pos] = try createGroup(T, self, context, group_index, group_pos);
+                prepared += 1;
+            }
+            self.groups_ready = true;
+        }
+
+        /// Releases cached groups. Prepare again before rendering.
+        pub fn invalidateBindings(self: *Self, context: *zgpu.GraphicsContext) void {
+            if (self.groups_ready) {
+                inline for (T.group_indices, 0..) |_, group_pos| {
+                    context.releaseResource(self.cached_groups[group_pos]);
+                    self.cached_groups[group_pos] = .{};
+                }
+            }
+            self.groups_ready = false;
+        }
+
+        /// Binds previously prepared groups without creating GPU resources.
+        pub fn bind(self: *const Self, context: *zgpu.GraphicsContext, pass: zgpu.wgpu.RenderPassEncoder) !void {
+            if (!self.groups_ready) return error.MaterialBindingsNotPrepared;
+            inline for (T.group_indices, 0..) |group_index, group_pos| {
+                const group = context.lookupResource(self.cached_groups[group_pos]) orelse return error.MaterialBindGroupNotFound;
                 pass.setBindGroup(group_index, group, null);
             }
         }
-    };
-}
 
-fn slotBindingType(comptime T: type, comptime metadata: anytype) type {
-    if (metadata.kind != .buffer) {
-        @compileError(slotError(T, metadata, "is not a buffer"));
-    }
-    const Element = metadata.ty orelse @compileError(slotError(T, metadata, "does not have a buffer element type"));
-    return Buffers.MaterialBufferBinding(
-        Element,
-        T,
-        metadata.group orelse @compileError("Material buffer slots must belong to a bind group"),
-        metadata.binding,
-        bufferRole(metadata),
-    );
-}
-
-fn bufferRole(metadata: anytype) Buffers.MaterialBufferRole {
-    if (metadata.resource_type == null) @compileError("anygpu buffer metadata is missing the resource type");
-    return switch (metadata.resource_type.?) {
-        .uniform => .uniform,
-        .storage => switch (metadata.read_only orelse @compileError("anygpu storage metadata is missing access")) {
-            .load => .storage_read_only,
-            .store, .load_store => .storage_read_write,
-            .atomic => .storage_atomic,
-        },
+        /// Releases cached groups and every buffer owned by this material.
+        pub fn deinit(self: *Self, context: *zgpu.GraphicsContext) void {
+            self.invalidateBindings(context);
+            inline for (T.group_indices) |group_index| {
+                const group_name = std.fmt.comptimePrint("group{d}", .{group_index});
+                if (@hasField(Options, group_name)) {
+                    inline for (@typeInfo(@FieldType(Options, group_name)).@"struct".fields) |field| {
+                        @field(@field(self.binds, group_name), field.name).deinit(context);
+                    }
+                }
+            }
+            self.* = undefined;
+        }
     };
 }
 
@@ -152,17 +130,6 @@ fn slotError(comptime T: type, metadata: anytype, comptime reason: []const u8) [
         "Material({s}): group{d} slot `{s}` {s}",
         .{ @typeName(T), metadata.group orelse 0, metadata.name, reason },
     );
-}
-
-fn validateCapacity(metadata: anytype, capacity: usize) !void {
-    if (capacity == 0) return error.ZeroBufferCapacity;
-    if (metadata.resource_type == .uniform) {
-        if (capacity != 1) return error.UniformCapacityMustBeOne;
-        return;
-    }
-    if (metadata.runtime_sized_array) return;
-    const expected = metadata.array_length orelse 1;
-    if (capacity != expected) return error.BufferCapacityDoesNotMatchShaderArray;
 }
 
 fn createGroup(
