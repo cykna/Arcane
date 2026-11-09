@@ -1,5 +1,6 @@
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
+const RenderingContext = @import("../core/RenderingContext.zig").RenderingContext;
 const vertex_streams = @import("../core/VertexStreams.zig");
 
 /// Shader-specific mesh view that groups vertex streams without owning buffers.
@@ -23,10 +24,10 @@ pub fn Mesh(comptime Shader: type) type {
         /// Binds the mesh's vertex streams to the active render pass.
         pub fn bind(
             self: *const Self,
-            gctx: *zgpu.GraphicsContext,
+            rendering_context: RenderingContext,
             pass: wgpu.RenderPassEncoder,
         ) !void {
-            try self.vertex_streams.bind(gctx, pass);
+            try self.vertex_streams.bind(rendering_context, pass);
         }
 
         /// Returns the current number of vertex-stepped elements.
