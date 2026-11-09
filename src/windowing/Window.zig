@@ -1,4 +1,5 @@
 const Rendering = @import("./RenderingState.zig");
+const RenderingContext = @import("../libraries/core/RenderingContext.zig").RenderingContext;
 const zmath = @import("zmath");
 const glfw = @import("zglfw");
 const zgpu = @import("zgpu");
@@ -39,6 +40,11 @@ pub const Window = struct {
 
     fn setup(self: *Self) void {
         self.window.setUserPointer(self);
+    }
+
+    /// Returns the GPU context and allocator needed by rendering APIs.
+    pub fn renderingContext(self: *const Self) RenderingContext {
+        return .{ .context = self.context, .allocator = self.allocator };
     }
 
     /// Destroys the window and GPU context.
