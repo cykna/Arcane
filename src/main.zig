@@ -1,4 +1,8 @@
+const ShaderContent = @import("libraries/ecs/Shaders.zig").ShaderContent;
+const Material = @import("./libraries/objects/Material.zig");
+
 const Buffers = @import("libraries/core/GpuBuffer.zig");
+const RenderingContext = @import("libraries/core/RenderingContext.zig").RenderingContext;
 const ArcaneEcs = @import("libraries/ecs/Main.zig");
 const World = ArcaneEcs.World;
 
@@ -9,6 +13,8 @@ const zgpu = @import("zgpu");
 const glfw = @import("zglfw");
 const streams = @import("libraries/core/VertexStreams.zig");
 const mesh = @import("libraries/objects/Mesh.zig");
+const InstanceBuffer = @import("libraries/objects/InstanceBuffer.zig").InstanceBuffer;
+const Scene = @import("libraries/ecs/Scene.zig").Scene;
 const triangle = @import("shaders/triangle.zig");
 const Camera = @import("libraries/objects/cameras/Camera.zig").GpuCamera;
 const PerspectiveCamera = @import("libraries/objects/cameras/PerspectiveCamera.zig").PerspectiveCamera;
@@ -17,34 +23,12 @@ const Io = std.Io;
 
 const arcane = @import("arcane");
 const TriangleStreams = streams.VertexStreams(triangle);
-const TriangleMesh = mesh.Mesh(triangle);
-
-comptime {
-    if (@sizeOf(Camera.CameraUniform) != @sizeOf(triangle.package_globals_Camera)) {
-        @compileError("camera uniform size does not match the generated triangle shader binding");
-    }
-    if (@alignOf(Camera.CameraUniform) != @alignOf(triangle.package_globals_Camera)) {
-        @compileError("camera uniform alignment does not match the generated triangle shader binding");
-    }
-    if (@offsetOf(Camera.CameraUniform, "view") != @offsetOf(triangle.package_globals_Camera, "view") or
-        @offsetOf(Camera.CameraUniform, "projection") != @offsetOf(triangle.package_globals_Camera, "projection") or
-        @offsetOf(Camera.CameraUniform, "view_projection") != @offsetOf(triangle.package_globals_Camera, "view_projection") or
-        @offsetOf(Camera.CameraUniform, "inverse_view_projection") != @offsetOf(triangle.package_globals_Camera, "inverse_view_projection"))
-    {
-        @compileError("camera uniform field offsets do not match the generated triangle shader binding");
-    }
-}
-
-test {
-    _ = Camera;
-}
 
 const Player = struct { health: f32, transform: @import("libraries/math/Transform.zig").Transform };
 
-fn create_triangle(window: *Arcane.Window) !TriangleStreams.Owned {
+fn create_triangle(rendering_context: RenderingContext) !TriangleStreams.Owned {
     var vertex_streams = try TriangleStreams.create(.{
-        .allocator = window.allocator,
-        .context = window.context,
+        .rendering_context = rendering_context,
         .capacity = 3,
     });
     try vertex_streams.append(.{
@@ -59,7 +43,7 @@ fn create_triangle(window: *Arcane.Window) !TriangleStreams.Owned {
         .position = .{ 0.0, 0.5, 0.0 },
         .color = .{ 0.0, 0.0, 1.0, 1.0 },
     });
-    try vertex_streams.flush(window.context);
+    try vertex_streams.flush(rendering_context);
     return vertex_streams;
 }
 
@@ -85,33 +69,35 @@ pub fn main(_: std.process.Init) !void {
             .name = "Suamae cadela",
         });
         try world.insertGlobal(window);
+        try world.insertGlobal(Scene{ .pool = .{ .rendering_context = window.renderingContext() } });
     }
+
+    defer world.destroyGlobal(Scene);
     defer world.destroyGlobal(Arcane.Window);
 
-    if (world.getGlobal(Arcane.Window)) |window| {
-        const render_pipeline = triangle.Pipeline.createWithVertexLayouts(
-            window.context,
-            @embedFile("shaders/wgsl/triangle.wgsl"),
-            &TriangleStreams.vertex_buffer_layouts,
-        );
-        defer triangle.Pipeline.destroy(window.context, render_pipeline);
+    if (world.getGlobals(.{ Arcane.Window, Scene })) |window_scene| {
+        var window, var scene = window_scene;
+        const rendering_context = window.renderingContext();
 
-        var camera = try PerspectiveCamera.init(.{ .context = window.context, .pipeline = render_pipeline, .allocator = window.allocator });
+        defer scene.pool.endInstances(triangle);
+        _ = try scene.pool.initialize(triangle);
 
+        var camera = try PerspectiveCamera.init(rendering_context);
         _ = try world.insert(camera);
-        defer camera.deinit(window.context);
-        const buffer = try Buffers.GpuBuffer(triangle.package_globals_MeshData).unit(.{ .allocator = window.allocator, .context = window.context, .roles = .{ .storage = true }, .content = .{ .model = Transform.identity().toWGslMat4x4(), .normal_matrix = Transform.identity().toWGslMat4x4() } });
-        const binding = try buffer.asBinding(.{
-            .allocator = window.allocator,
-            .context = window.context,
-            .pipeline = render_pipeline,
-            .binding_index = 0,
-            .group_index = 1,
-        });
+        defer camera.deinit(rendering_context);
 
-        var vertex_streams = try create_triangle(window);
-        defer vertex_streams.deinit(window.context);
-        const triangle_mesh = TriangleMesh.init(try vertex_streams.view());
+        const triangleMaterial = Material.Material(triangle);
+        var buffer = try Buffers.GpuBuffer(triangle.package_globals_MeshData).unit(.{ .rendering_context = rendering_context, .roles = .{ .storage = true }, .content = .{ .model = Transform.identity().toWGslMat4x4(), .normal_matrix = Transform.identity().toWGslMat4x4() } });
+        defer buffer.deinit(rendering_context);
+        var vertex_streams = try create_triangle(rendering_context);
+        defer vertex_streams.deinit(rendering_context);
+
+        var content = ShaderContent(triangle){ .material = triangleMaterial{
+            .binds = .{ .group0 = .{ .camera = &camera.uniform_buffer }, .group1 = .{ .instances = &buffer } },
+        }, .mesh = mesh.Mesh(triangle).init(try vertex_streams.view()) };
+        defer content.material.deinit(rendering_context);
+        try content.material.prepare(rendering_context);
+
         while (!window.shouldClose()) {
             glfw.pollEvents();
             const processing = window.startProcessing();
@@ -128,7 +114,7 @@ pub fn main(_: std.process.Init) !void {
                             @intFromFloat(processing.height),
                         );
                     }
-                    try PerspectiveCamera.update(&q, window.context);
+                    try PerspectiveCamera.update(&q, rendering_context);
                 }
             }
 
@@ -137,11 +123,12 @@ pub fn main(_: std.process.Init) !void {
             defer window.finishProcessing(processing);
             defer pass.end();
 
-            try triangle.Pipeline.bind(window.context, pass, render_pipeline);
-            try camera.bind(window.context, pass);
-            try binding.bind(window.context, pass, 1);
-            try triangle_mesh.bind(window.context, pass);
-            triangle_mesh.draw(pass);
+            try scene.prepareFor(triangle, pass);
+            try content.draw(rendering_context, pass);
         }
     }
+}
+
+test {
+    _ = @import("material_test.zig");
 }

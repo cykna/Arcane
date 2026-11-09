@@ -112,10 +112,6 @@ const multi_buffer_shader = struct {
             .ty = u32,
         },
     };
-    pub const MaterialGroup = enum(u32) { group0 = 0 };
-    pub const MaterialSlots = struct {
-        pub const group0 = enum(u32) { camera = 0, items = 1, history = 2, output = 3 };
-    };
     pub const group_indices = [_]u32{0};
     pub const group_bindings = [_][]const shared.Binding{bindings[0..4]};
 
@@ -124,26 +120,11 @@ const multi_buffer_shader = struct {
     }
 };
 
-test "Material slot types preserve buffer roles and element identity" {
+test "Material slot types are borrowed buffers with the binding element type" {
     const M = Material.Material(triangle);
-    const CameraReturn = @TypeOf(M.initBinding(.group0, .camera, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 1,
-    }));
-    const InstancesReturn = @TypeOf(M.initBinding(.group1, .instances, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 1,
-    }));
-    const camera_type = @typeInfo(CameraReturn).error_union.payload;
-    const instances_type = @typeInfo(InstancesReturn).error_union.payload;
 
-    try std.testing.expect(camera_type != instances_type);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.uniform, camera_type.buffer_role);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.storage_read_only, instances_type.buffer_role);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.camera) == camera_type);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group1.instances) == instances_type);
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.camera) == *Buffers.GpuBuffer(triangle.package_globals_Camera));
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group1.instances) == *Buffers.GpuBuffer(triangle.package_globals_MeshData));
 
     const camera_layout = triangle.materialBindGroupLayoutEntry(triangle.bindings[0]);
     const storage_layout = triangle.materialBindGroupLayoutEntry(triangle.bindings[1]);
@@ -155,46 +136,16 @@ test "Material slot types preserve buffer roles and element identity" {
 
 test "Material assembles one group from multiple typed slots" {
     const M = Material.Material(multi_buffer_shader);
-    const CameraReturn = @TypeOf(M.initBinding(.group0, .camera, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 1,
-    }));
-    const ItemsReturn = @TypeOf(M.initBinding(.group0, .items, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 4,
-    }));
-    const HistoryReturn = @TypeOf(M.initBinding(.group0, .history, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 4,
-    }));
-    const OutputReturn = @TypeOf(M.initBinding(.group0, .output, .{
-        .allocator = undefined,
-        .context = undefined,
-        .capacity = 4,
-    }));
-    const camera_type = @typeInfo(CameraReturn).error_union.payload;
-    const items_type = @typeInfo(ItemsReturn).error_union.payload;
-    const history_type = @typeInfo(HistoryReturn).error_union.payload;
-    const output_type = @typeInfo(OutputReturn).error_union.payload;
 
-    try std.testing.expect(camera_type != items_type);
-    try std.testing.expect(items_type != history_type);
-    try std.testing.expect(history_type != output_type);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.uniform, camera_type.buffer_role);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.storage_read_only, items_type.buffer_role);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.storage_read_write, history_type.buffer_role);
-    try std.testing.expectEqual(Buffers.MaterialBufferRole.storage_read_write, output_type.buffer_role);
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.camera) == *Buffers.GpuBuffer(u32));
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.items) == *Buffers.GpuBuffer(u32));
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.history) == *Buffers.GpuBuffer(u32));
+    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.output) == *Buffers.GpuBuffer(u32));
     try std.testing.expectEqual(@as(usize, 4), multi_buffer_shader.group_bindings[0].len);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.camera) == camera_type);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.items) == items_type);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.history) == history_type);
-    try std.testing.expect(@TypeOf(@as(M, undefined).binds.group0.output) == output_type);
 
     comptime {
-        const bind_fn = M.bind;
-        _ = bind_fn;
+        _ = M.bind;
+        _ = M.prepare;
+        _ = M.invalidateBindings;
     }
 }
