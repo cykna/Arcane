@@ -79,6 +79,31 @@ pub fn generateLinkedModule(module: *const Value, linked: *const schema.Model, a
     return generateWithModel(module, &model, work_allocator, allocator);
 }
 
+fn writeModuleSource(w: *Writer, allocator: Allocator, module_id: []const u8) !void {
+    const package_prefix = "package::";
+    const module_path = if (std.mem.startsWith(u8, module_id, package_prefix))
+        module_id[package_prefix.len..]
+    else
+        module_id;
+    var source_path: Writer.Allocating = .init(allocator);
+    const path_writer = &source_path.writer;
+    try path_writer.writeAll("wgsl/");
+    var index: usize = 0;
+    while (index < module_path.len) {
+        if (index + 1 < module_path.len and module_path[index] == ':' and module_path[index + 1] == ':') {
+            try path_writer.writeByte('/');
+            index += 2;
+        } else {
+            try path_writer.writeByte(module_path[index]);
+            index += 1;
+        }
+    }
+    try path_writer.writeAll(".wgsl");
+    try w.writeAll("pub const Source = @embedFile(");
+    try writeZigString(w, try source_path.toOwnedSlice());
+    try w.writeAll(");\n");
+}
+
 fn generateWithModel(
     schema_value: *const Value,
     model: *const schema.Model,
@@ -94,6 +119,7 @@ fn generateWithModel(
     );
     if (model.emit_mode == .linked_module) {
         try w.writeAll("const canonical = @import(\"types.zig\");\n");
+        try writeModuleSource(w, work_allocator, model.current_module orelse return error.MissingModuleId);
     }
     types.emit(w, model) catch |err| {
         std.debug.print("anygpu-ziggen: type emission failed: {s}\n", .{@errorName(err)});

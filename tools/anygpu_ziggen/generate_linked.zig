@@ -154,6 +154,8 @@ test "linked types are emitted once and modules keep their own bindings" {
     const first_module = findGenerated(first, "first.zig").?;
     const second_module = findGenerated(first, "second.zig").?;
     try std.testing.expect(std.mem.indexOf(u8, first_module.contents, "const canonical = @import(\"types.zig\");") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first_module.contents, "pub const Source = @embedFile(\"wgsl/first.wgsl\");") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second_module.contents, "pub const Source = @embedFile(\"wgsl/second.wgsl\");") != null);
     try std.testing.expect(std.mem.indexOf(u8, first_module.contents, "items: [2]canonical.Outer") != null);
     try std.testing.expect(std.mem.indexOf(u8, first_module.contents, ".group = 0") != null);
     try std.testing.expect(std.mem.indexOf(u8, first_module.contents, ".group = 1") != null);

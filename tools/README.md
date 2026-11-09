@@ -20,17 +20,19 @@ pipeline declarations, and WGSL vector types. Consumers should keep that file
 alongside the generated shader modules. `zig build test` also runs the
 generator's focused tests.
 
-Generated render pipelines expose `Pipeline.create(gctx, wgsl_source)`, which
-creates a `zgpu.RenderPipelineHandle` using the WGSL entry points and the
-swapchain format. Pass the WGSL as a sentinel-terminated string (for example,
-`@embedFile("shaders/wgsl/triangle.wgsl")` from `src/main.zig`).
-`Pipeline.createWithOptions`
-allows overriding the color target format and primitive state. Bind the
+Linked modules also expose `Source`, an `@embedFile` of the module's compiled
+WGSL file (for example, `triangle.Source`). Generated render pipelines expose
+`Pipeline.create(gctx, wgsl_source)`, which creates a
+`zgpu.RenderPipelineHandle` using the WGSL entry points, the swapchain format,
+and an explicit pipeline layout derived from the module's anygpu bind-group
+metadata. Pass the module's `Source` as the sentinel-terminated WGSL string.
+`Pipeline.createWithOptions` allows overriding the color target format and
+primitive state; a caller-provided `layout` is used when present. Bind the
 returned handle inside a render pass with `try Pipeline.bind(gctx, pass,
 handle)`, then issue the draw call; release it with `Pipeline.destroy(gctx,
-handle)`. These helpers use automatic pipeline layout, so explicit bind-group
-layout/resource creation remains the caller's responsibility for shaders with
-bindings.
+handle)`. `Pipeline.createPipelineLayout(gctx)` creates the explicit
+bind-group layouts and pipeline layout from the same metadata. Bind-group
+resource creation remains the caller's responsibility.
 Generated buffer struct fields use explicit offsets,
 padding, and WGSL member alignment, and include compile-time size/alignment
 checks where Zig can represent both exactly. Vectors are component structs;
@@ -39,10 +41,9 @@ matrix columns and padded array elements use explicit stride wrappers.
 array length, including alignment metadata that cannot be represented on a
 standalone Zig vector type.
 
-The schema does not link a binding name to its WGSL type, does not report stage
-visibility, and currently omits texture and sampler entries from the pipeline
-layout. The generator preserves the binding metadata that is present but does
-not infer those missing relationships. Opaque handles and runtime-sized arrays
-are not exposed as fabricated host-side values; runtime-array tails remain
-zero-length typed fields with the schema's fixed struct prefix and stride.
-WGSL `bool` is represented as `u32` in memory, not Zig's one-byte `bool`.
+The generator emits the binding and pipeline-layout metadata present in the
+schema and does not infer missing relationships. Opaque handles and
+runtime-sized arrays are not exposed as fabricated host-side values;
+runtime-array tails remain zero-length typed fields with the schema's fixed
+struct prefix and stride. WGSL `bool` is represented as `u32` in memory, not
+Zig's one-byte `bool`.

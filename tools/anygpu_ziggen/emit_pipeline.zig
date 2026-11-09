@@ -124,6 +124,19 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
     try writeVertexBufferLayouts(w, &vertex);
 
     try w.writeAll(
+        \\    pub fn createPipelineLayout(gctx: *zgpu.GraphicsContext) zgpu.PipelineLayoutHandle {
+        \\        var layouts: [bind_group_count]zgpu.BindGroupLayoutHandle = undefined;
+        \\        inline for (group_bindings, 0..) |group_binding, group_pos| {
+        \\            var entries: [group_binding.len]wgpu.BindGroupLayoutEntry = undefined;
+        \\            inline for (group_binding, 0..) |binding, binding_pos| {
+        \\                entries[binding_pos] = materialBindGroupLayoutEntry(binding);
+        \\            }
+        \\            layouts[group_pos] = gctx.createBindGroupLayout(&entries);
+        \\        }
+        \\        defer for (layouts) |layout| gctx.releaseResource(layout);
+        \\        return gctx.createPipelineLayout(&layouts);
+        \\    }
+        \\
         \\    pub const CreateOptions = struct {
         \\        color_format: wgpu.TextureFormat = zgpu.GraphicsContext.swapchain_format,
         \\        primitive: wgpu.PrimitiveState = .{},
@@ -139,7 +152,16 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\        source: [:0]const u8,
         \\        options: CreateOptions,
         \\    ) zgpu.RenderPipelineHandle {
-        \\        return createWithVertexLayoutsAndOptions(gctx, source, &vertex_buffer_layouts, options);
+        \\        if (options.layout.id != 0) {
+        \\            return createWithVertexLayoutsAndOptions(gctx, source, &vertex_buffer_layouts, options);
+        \\        }
+        \\        const layout = createPipelineLayout(gctx);
+        \\        defer gctx.releaseResource(layout);
+        \\        return createWithVertexLayoutsAndOptions(gctx, source, &vertex_buffer_layouts, .{
+        \\            .color_format = options.color_format,
+        \\            .primitive = options.primitive,
+        \\            .layout = layout,
+        \\        });
         \\    }
         \\
         \\    pub fn createWithVertexLayouts(
@@ -147,7 +169,9 @@ fn writeRenderHelpers(w: *Writer, pipelines: *const Value) !void {
         \\        source: [:0]const u8,
         \\        layouts: []const wgpu.VertexBufferLayout,
         \\    ) zgpu.RenderPipelineHandle {
-        \\        return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{});
+        \\        const layout = createPipelineLayout(gctx);
+        \\        defer gctx.releaseResource(layout);
+        \\        return createWithVertexLayoutsAndOptions(gctx, source, layouts, .{ .layout = layout });
         \\    }
         \\
         \\    pub fn createWithVertexLayoutsAndLayout(

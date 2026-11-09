@@ -40,7 +40,7 @@ fn isGeneratedName(name: []const u8) bool {
         "TextureSampleType", "TextureViewDimension", "StorageTextureAccess", "ShaderStage",                  "WgslTypeLayout",
         "PushConstantRange", "Pipeline",             "bindings",             "bindgroups",                   "type_layouts",
         "group_indices",     "group_bindings",       "bindingsOfGroup",      "pipeline",                     "shared",
-        "BindingMetadata",   "MaterialGroup",        "MaterialSlots",        "materialBindGroupLayoutEntry",
+        "BindingMetadata",   "MaterialGroup",        "MaterialSlots",        "materialBindGroupLayoutEntry", "Source",
     };
     for (reserved) |entry| if (std.mem.eql(u8, name, entry)) return true;
     return std.mem.startsWith(u8, name, "Type_");
