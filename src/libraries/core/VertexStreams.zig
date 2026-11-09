@@ -2,6 +2,7 @@ const std = @import("std");
 const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
 const gpu_buffer = @import("GpuBuffer.zig");
+const RenderingContext = @import("RenderingContext.zig").RenderingContext;
 
 /// The per-attribute data used to derive a vertex-buffer layout and bind slot.
 pub const StreamLayout = struct {
@@ -87,18 +88,18 @@ pub fn VertexStream(comptime T: type) type {
         }
 
         /// Uploads pending CPU-side changes to this stream's GPU buffer.
-        pub fn flush(self: *Self, gctx: *zgpu.GraphicsContext) !void {
-            try self.buffer.flush(gctx);
+        pub fn flush(self: *Self, rendering_context: RenderingContext) !void {
+            try self.buffer.flush(rendering_context);
         }
 
         /// Binds this stream at its assigned slot in the active render pass.
         pub fn bind(
             self: *const Self,
-            gctx: *zgpu.GraphicsContext,
+            rendering_context: RenderingContext,
             pass: wgpu.RenderPassEncoder,
         ) !void {
             const handle = try self.buffer.handleFor(.vertex);
-            const buffer = gctx.lookupResource(handle) orelse return error.BufferNotFound;
+            const buffer = rendering_context.context.lookupResource(handle) orelse return error.BufferNotFound;
             pass.setVertexBuffer(self.layout.slot, buffer, 0, self.buffer.size());
         }
     };
@@ -168,8 +169,7 @@ pub fn VertexStreams(comptime Shader: type) type {
         pub const BufferSetType = BufferSet;
         /// Options shared by all buffers created for these vertex inputs.
         pub const CreateOptions = struct {
-            allocator: std.mem.Allocator,
-            context: *zgpu.GraphicsContext,
+            rendering_context: RenderingContext,
             capacity: usize,
         };
 
@@ -196,19 +196,19 @@ pub fn VertexStreams(comptime Shader: type) type {
             }
 
             /// Uploads dirty ranges from all owned buffers.
-            pub fn flush(self: *@This(), gctx: *zgpu.GraphicsContext) !void {
+            pub fn flush(self: *@This(), rendering_context: RenderingContext) !void {
                 var streams = try self.view();
-                try streams.flush(gctx);
+                try streams.flush(rendering_context);
             }
 
             /// Binds every owned stream to the active render pass.
             pub fn bind(
                 self: *@This(),
-                gctx: *zgpu.GraphicsContext,
+                rendering_context: RenderingContext,
                 pass: wgpu.RenderPassEncoder,
             ) !void {
                 var streams = try self.view();
-                try streams.bind(gctx, pass);
+                try streams.bind(rendering_context, pass);
             }
 
             /// Returns the number of vertex-stepped elements.
@@ -232,9 +232,9 @@ pub fn VertexStreams(comptime Shader: type) type {
             }
 
             /// Releases all owned GPU buffers and their CPU-side storage.
-            pub fn deinit(self: *@This(), gctx: *zgpu.GraphicsContext) void {
+            pub fn deinit(self: *@This(), rendering_context: RenderingContext) void {
                 inline for (inputs) |input| {
-                    @field(self.buffers, input.field_name).deinit(gctx);
+                    @field(self.buffers, input.field_name).deinit(rendering_context);
                 }
                 self.* = undefined;
             }
@@ -288,7 +288,7 @@ pub fn VertexStreams(comptime Shader: type) type {
 
         /// Allocates one empty vertex buffer per shader input.
         ///
-        /// Every buffer uses the same capacity and allocator/context, while
+        /// Every buffer uses the same capacity and rendering context, while
         /// element type and step mode come from `Shader.vertex_inputs`.
         /// The returned `Owned` value is responsible for releasing the buffers.
         pub fn create(options: CreateOptions) !Owned {
@@ -297,15 +297,14 @@ pub fn VertexStreams(comptime Shader: type) type {
             errdefer {
                 inline for (inputs, 0..) |input, index| {
                     if (initialized[index]) {
-                        @field(buffers, input.field_name).deinit(options.context);
+                        @field(buffers, input.field_name).deinit(options.rendering_context);
                     }
                 }
             }
 
             inline for (inputs, 0..) |input, index| {
                 @field(buffers, input.field_name) = try gpu_buffer.GpuBuffer(input.element_type).allocate(.{
-                    .allocator = options.allocator,
-                    .context = options.context,
+                    .rendering_context = options.rendering_context,
                     .capacity = options.capacity,
                     .roles = .{ .vertex = true },
                     .step_mode = input.step_mode,
@@ -355,27 +354,27 @@ pub fn VertexStreams(comptime Shader: type) type {
         }
 
         /// Flushes each stream's dirty range to its GPU buffer.
-        pub fn flush(self: *Self, gctx: *zgpu.GraphicsContext) !void {
+        pub fn flush(self: *Self, rendering_context: RenderingContext) !void {
             inline for (inputs) |input| {
-                try @field(self.streams, input.field_name).flush(gctx);
+                try @field(self.streams, input.field_name).flush(rendering_context);
             }
         }
 
         /// Validates device limits and binds every stream to its assigned slot.
         pub fn bind(
             self: *const Self,
-            gctx: *zgpu.GraphicsContext,
+            rendering_context: RenderingContext,
             pass: wgpu.RenderPassEncoder,
         ) !void {
             var limits: wgpu.SupportedLimits = .{};
-            if (!gctx.device.getLimits(&limits)) return error.DeviceLimitsUnavailable;
+            if (!rendering_context.context.device.getLimits(&limits)) return error.DeviceLimitsUnavailable;
             if (inputs.len > limits.limits.max_vertex_buffers) return error.VertexBufferLimitExceeded;
             inline for (inputs) |input| {
                 if (input.location >= limits.limits.max_vertex_attributes) return error.VertexAttributeLimitExceeded;
             }
 
             inline for (inputs) |input| {
-                try @field(self.streams, input.field_name).bind(gctx, pass);
+                try @field(self.streams, input.field_name).bind(rendering_context, pass);
             }
         }
 
