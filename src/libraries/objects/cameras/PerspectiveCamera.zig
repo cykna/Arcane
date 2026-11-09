@@ -1,57 +1,47 @@
 const Buffers = @import("../../core/GpuBuffer.zig");
+const RenderingContext = @import("../../core/RenderingContext.zig").RenderingContext;
 const World = @import("../../ecs/World.zig").World;
 const zmath = @import("zmath");
 const std = @import("std");
-const zgpu = @import("zgpu");
 const Transform = @import("../../math/Transform.zig").Transform;
 const Camera = @import("./Camera.zig").GpuCamera;
 const GpuCamera = Camera;
 pub const PerspectiveCamera = struct {
     camera: Camera,
-    binding: Camera.GpuBinding,
+    uniform_buffer: Buffers.GpuBuffer(Camera.CameraUniform),
     transform: Transform,
 
     const Self = @This();
     const CreateCameraOptions = struct {
-        context: *zgpu.GraphicsContext,
-        allocator: std.mem.Allocator,
-        group_index: u32 = 0,
-        binding_index: u32 = 0,
         transform: Transform = .{ .position = zmath.f32x4s(0.0), .rotation = zmath.f32x4(0.0, 0.0, 0.0, 1.0), .scale = zmath.f32x4s(1.0) },
         fov: f32 = 90.0,
     };
-    pub fn init(options: CreateCameraOptions) !Self {
+    pub fn init(rendering_context: RenderingContext) !Self {
+        return initWithOptions(rendering_context, .{});
+    }
+
+    pub fn initWithOptions(rendering_context: RenderingContext, options: CreateCameraOptions) !Self {
         const camera = camera: {
             var position: [3]f32 = undefined;
             zmath.storeArr3(&position, options.transform.position);
             const camera = try Camera.init(.{ .position = position, .vertical_fov_radians = options.fov * std.math.pi / 180, .aspect_ratio = 16.0 / 9.0 });
             break :camera camera;
         };
-        var layout = Camera.BindingLayout.create(options.context, options.pipeline, options.group_index, options.binding_index);
-        defer layout.deinit(options.context);
         var buffer = try Buffers.GpuBuffer(Camera.CameraUniform).allocate(.{
-            .allocator = options.allocator,
-            .context = options.context,
+            .rendering_context = rendering_context,
             .capacity = 1,
             .roles = .{ .uniform = true },
         });
-        const data = camera.matrices().uniformData();
-        try buffer.append(data);
-        try buffer.flush(options.context);
-        const binding = Buffers.BufferBinding(Camera.CameraUniform).init(.{
-            .allocator = options.allocator,
-            .context = options.context,
-            .pipeline = options.pipeline,
-            .buffer = buffer,
-            .binding_index = options.binding_index,
-            .group_index = options.group_index,
-        });
+        errdefer buffer.deinit(rendering_context);
+        try buffer.append(camera.matrices().uniformData());
+        try buffer.flush(rendering_context);
 
-        return Self{ .transform = options.transform, .camera = camera, .binding = binding };
+        return Self{ .transform = options.transform, .camera = camera, .uniform_buffer = buffer };
     }
 
-    pub fn deinit(self: *Self, ctx: *zgpu.GraphicsContext) void {
-        self.binding.deinit(ctx);
+    pub fn deinit(self: *Self, rendering_context: RenderingContext) void {
+        self.uniform_buffer.deinit(rendering_context);
+        self.* = undefined;
     }
 
     /// Updates the camera aspect ratio from framebuffer pixel dimensions.
@@ -61,12 +51,6 @@ pub const PerspectiveCamera = struct {
     pub fn setViewport(self: *World.QueryCursor(Self, World.Mutabilities.mut), width: u32, height: u32) !void {
         if (width == 0 or height == 0) return error.InvalidViewport;
         self.get(.camera).aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
-    }
-
-    /// Binds this camera's group to the active render pass.
-    pub fn bind(self: *const Self, ctx: *zgpu.GraphicsContext, pass: zgpu.wgpu.RenderPassEncoder) !void {
-        const group = ctx.lookupResource(self.binding.group) orelse return error.CameraBindGroupNotFound;
-        pass.setBindGroup(self.binding.index, group, null);
     }
 
     /// Direção para onde a câmera olha (-Z local).
@@ -100,13 +84,15 @@ pub const PerspectiveCamera = struct {
         return out;
     }
 
-    pub fn getUniform(self: World.QueryCursor(Self)) void {
+    pub fn getUniform(self: World.QueryCursor(Self)) Camera.CameraUniform {
         return self.get(.camera).matrices().uniformData();
     }
 
-    pub fn update(self: *World.QueryCursor(Self, World.Mutabilities.mut), ctx: *zgpu.GraphicsContext) !void {
+    pub fn update(self: *World.QueryCursor(Self, World.Mutabilities.mut), rendering_context: RenderingContext) !void {
         zmath.storeArr3(&self.get(.camera).position, self.get(.transform).position);
         self.get(.camera).rotation = self.get(.transform).rotation;
-        try self.get(.binding).update(ctx, 0, self.get(.camera).matrices().uniformData());
+        const uniform = self.get(.camera).matrices().uniformData();
+        try self.get(.uniform_buffer).set(0, uniform);
+        try self.get(.uniform_buffer).flush(rendering_context);
     }
 };

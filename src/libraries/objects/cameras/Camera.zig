@@ -1,10 +1,8 @@
 const sharedGpu = @import("../../../shaders/shared.zig");
+const sharedTypes = @import("../../../shaders/types.zig");
 const std = @import("std");
 const Transform = @import("../../math/Transform.zig");
 const zmath = @import("zmath");
-const zgpu = @import("zgpu");
-const wgpu = zgpu.wgpu;
-const gpu_buffer = @import("../../core/GpuBuffer.zig");
 
 /// Perspective camera state and matrices, independent of any GPU resource.
 ///
@@ -38,8 +36,8 @@ pub const GpuCamera = struct {
         }
     };
 
-    /// Host-shareable representation of the WGSL camera uniform block.
-    pub const CameraUniform = @import("../../../shaders/triangle.zig").package_globals_Camera;
+    /// Host-shareable representation of the shared WGSL camera uniform block.
+    pub const CameraUniform = sharedTypes.Camera;
 
     /// One WGSL `mat4x4<f32>` stored as four 16-byte columns.
     pub const GpuMat4 = extern struct {
@@ -63,82 +61,6 @@ pub const GpuCamera = struct {
         near_plane: f32 = 0.1,
         far_plane: f32 = 1000,
     };
-
-    /// Shared bind-group layout for camera uniforms in a pipeline.
-    ///
-    /// Create this once per compatible pipeline and reuse it for any number of
-    /// `GpuBinding` camera instances.
-    pub const BindingLayout = struct {
-        handle: zgpu.BindGroupLayoutHandle,
-        group_index: u32,
-        binding_index: u32,
-
-        /// Obtains the camera group layout from an auto-layout render pipeline.
-        pub fn create(
-            gctx: *zgpu.GraphicsContext,
-            pipeline: zgpu.RenderPipelineHandle,
-            group_index: u32,
-            binding_index: u32,
-        ) BindingLayout {
-            return .{
-                .handle = gctx.createBindGroupLayoutAuto(pipeline, group_index),
-                .group_index = group_index,
-                .binding_index = binding_index,
-            };
-        }
-
-        /// Releases the shared bind-group layout.
-        pub fn deinit(self: *BindingLayout, gctx: *zgpu.GraphicsContext) void {
-            gctx.releaseResource(self.handle);
-            self.* = undefined;
-        }
-    };
-
-    /// GPU uniform buffer and bind group for one camera instance.
-    ///
-    /// Multiple instances can share a `BindingLayout`, while retaining separate
-    /// camera matrices and GPU resources.
-    ///
-    pub const GpuBinding = gpu_buffer.BufferBinding(CameraUniform);
-    // pub const GpuBinding = struct {
-    //     uniform_buffer: gpu_buffer.GpuBuffer(CameraUniform),
-    //     bind_group: zgpu.BindGroupHandle,
-    //     group_index: u32,
-
-    //     /// Allocates and initializes the camera uniform buffer and bind group.
-    //     pub fn create(
-    //         gctx: *zgpu.GraphicsContext,
-    //         allocator: std.mem.Allocator,
-    //         layout: *BindingLayout,
-    //         camera: GpuCamera,
-    //     ) !GpuBinding {
-    //         var uniform_buffer = try gpu_buffer.GpuBuffer(CameraUniform).allocate(.{
-    //             .allocator = allocator,
-    //             .context = gctx,
-    //             .capacity = 1,
-    //             .roles = .{ .uniform = true },
-    //         });
-    //         errdefer uniform_buffer.deinit(gctx);
-
-    //         try uniform_buffer.append(camera.matrices().uniformData());
-    //         try uniform_buffer.flush(gctx);
-
-    //         const bind_group = gctx.createBindGroup(layout.handle, &.{
-    //             .{
-    //                 .binding = layout.binding_index,
-    //                 .buffer_handle = uniform_buffer.buffer_handle,
-    //                 .offset = 0,
-    //                 .size = @sizeOf(CameraUniform),
-    //             },
-    //         });
-    //         return .{
-    //             .uniform_buffer = uniform_buffer,
-    //             .bind_group = bind_group,
-    //             .group_index = layout.group_index,
-    //         };
-    //     }
-
-    // };
 
     /// Creates a right-handed perspective camera looking toward `target`.
     pub fn init(options: CreateOptions) !GpuCamera {
